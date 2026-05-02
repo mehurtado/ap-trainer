@@ -270,12 +270,14 @@ export function useGameState() {
 
   function goHome() {
     if (wipeTimer.current) clearInterval(wipeTimer.current);
+    audioEngine.stop();
     setScreen('home');
   }
 
   return {
     screen, setScreen,
-    level, setLevel,
+    level,
+    setLevel: (v) => { setLevel(v); setMeta('level', v); },
     sessionType,
     trialIndex,
     currentTrial,
@@ -291,6 +293,7 @@ export function useGameState() {
     cognitiveLoad, setCognitiveLoad,
     intoxicationFlag, setIntoxicationFlag,
     contaminationFlag, setContaminationFlag,
+    consecutiveResults,
     matrixStore,
     startSession: beginSession,
     startMicro: beginMicro,

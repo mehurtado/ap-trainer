@@ -1,5 +1,6 @@
 import React from 'react';
 import { useGameState } from './hooks/useGameState.js';
+import { useTheme } from './hooks/useTheme.js';
 import HomeScreen from './components/HomeScreen.jsx';
 import TrialScreen from './components/TrialScreen.jsx';
 import FeedbackScreen from './components/FeedbackScreen.jsx';
@@ -10,6 +11,7 @@ import './App.css';
 
 export default function App() {
   const g = useGameState();
+  const { theme, toggle: toggleTheme } = useTheme();
 
   if (g.screen === 'home') {
     return (
@@ -21,11 +23,16 @@ export default function App() {
         onStartMicro={g.startMicro}
         onDashboard={() => g.setScreen('dashboard')}
         onAmbient={() => g.setScreen('ambient')}
+        onSetLevel={g.setLevel}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
     );
   }
 
   if (g.screen === 'trial') {
+    const correct = g.consecutiveResults.filter(Boolean).length;
+    const total = g.consecutiveResults.length;
     return (
       <TrialScreen
         currentTrial={g.currentTrial}
@@ -38,6 +45,9 @@ export default function App() {
         trialIndex={g.trialIndex}
         sessionType={g.sessionType}
         notExactMode={g.notExactMode}
+        sessionCorrect={correct}
+        sessionTotal={total}
+        onQuit={g.goHome}
       />
     );
   }
@@ -53,7 +63,7 @@ export default function App() {
   }
 
   if (g.screen === 'wipe') {
-    return <WipeScreen progress={g.wipeProgress} />;
+    return <WipeScreen progress={g.wipeProgress} onQuit={g.goHome} />;
   }
 
   if (g.screen === 'dashboard') {
