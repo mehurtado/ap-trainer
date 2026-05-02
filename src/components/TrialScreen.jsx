@@ -12,6 +12,9 @@ export default function TrialScreen({
   trialIndex,
   sessionType,
   notExactMode,
+  sessionCorrect,
+  sessionTotal,
+  onQuit,
 }) {
   const [timeLeft, setTimeLeft] = useState(100);
   const intervalRef = useRef(null);
@@ -54,8 +57,12 @@ export default function TrialScreen({
       <div className="trial-meta">
         <span>Level {level}</span>
         <span>#{trialIndex + 1}</span>
+        {sessionTotal > 0 && (
+          <span className="session-record">{sessionCorrect}/{sessionTotal}</span>
+        )}
         {currentTrial.isWarmup && <span className="tag">warm-up</span>}
         {currentTrial.isColdStart && <span className="tag cold">cold start</span>}
+        <button className="quit-btn" onClick={onQuit}>✕</button>
       </div>
 
       {/* Stimulus type indicator — no pitch info, just timbral context */}

@@ -33,6 +33,13 @@ class AudioEngine {
     }
   }
 
+  stop() {
+    if (!this.ctx) return;
+    this.ctx.close().catch(() => {});
+    this.ctx = null;
+    this.masterGain = null;
+  }
+
   get currentTime() {
     return this.ctx ? this.ctx.currentTime : 0;
   }
