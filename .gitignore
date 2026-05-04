@@ -12,9 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Audio samples — re-downloaded by setup.sh
-public/samples/
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
