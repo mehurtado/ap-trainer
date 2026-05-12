@@ -122,6 +122,7 @@ export function useGameState() {
       instrumentId: inst,
       trialIndexInSession: idx,
       confusionMatrix: matrixStore.current.all,
+      sessionType: sessType,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;

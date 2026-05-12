@@ -21,19 +21,19 @@ function randomInstrumentOctaveForChroma(chroma) {
   return { instrument: inst, octave: oct };
 }
 
-// Picks a stimulus type according to the weighted mix
-function pickStimulusType(level, isWarmup = false) {
-  if (isWarmup) return 'instrument';
-  const sineWeight = level >= 12 ? 30 : level >= 6 ? 20 : 20;
-  const roll = Math.random() * 100;
-  if (roll < sineWeight) return 'sine';
-  if (roll < sineWeight + 20) return 'detuned';
-  if (roll < sineWeight + 30) return 'noise';
+// Overall mix: 40% sine, 12% detuned, 6% noise, 42% clean instrument.
+// Binary sessions always get clean instrument (no detuning, no noise).
+function pickStimulusType(level, isWarmup = false, isBinary = false) {
+  if (isWarmup || isBinary) return 'instrument';
+  const roll = Math.random();
+  if (roll < 0.40) return 'sine';
+  if (roll < 0.52) return 'detuned';
+  if (roll < 0.58) return 'noise';
   return 'instrument';
 }
 
 // Generates the next trial spec given active notes and level
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix }) {
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType }) {
   const isWarmup = trialIndexInSession < 10 && level < 12;
 
   // Pick target chroma
@@ -49,7 +49,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
   const reg = INSTRUMENT_REGISTERS[inst];
   const octave = randInt(reg.min, reg.max);
 
-  const stimType = pickStimulusType(level, isWarmup);
+  const stimType = pickStimulusType(level, isWarmup, sessionType === 'binary');
   let centOffset = 0;
   let centDirection = 'none';
 

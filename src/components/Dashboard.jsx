@@ -7,7 +7,7 @@ function buildConfusionGrid(trials, filter = 'all') {
   for (const c of CHROMAS) { grid[c] = {}; for (const r of CHROMAS) grid[c][r] = 0; }
   for (const t of trials) {
     if (filter === 'sine' && !t.sine_wave_flag) continue;
-    if (filter === 'instrument' && t.sine_wave_flag) continue;
+    if (filter === 'instrument' && (t.sine_wave_flag || t.noise_masked_flag)) continue;
     if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.target_chroma) {
       grid[t.target_chroma][t.user_guess] = (grid[t.target_chroma][t.user_guess] || 0) + 1;
     }
