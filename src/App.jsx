@@ -24,6 +24,7 @@ export default function App() {
         onDashboard={() => g.setScreen('dashboard')}
         onAmbient={() => g.setScreen('ambient')}
         onSetLevel={g.setLevel}
+        onStartBinary={g.startBinary}
         theme={theme}
         onToggleTheme={toggleTheme}
       />

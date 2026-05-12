@@ -38,6 +38,7 @@ export function useGameState() {
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
   const lastTrialTime = useRef(null);
+  const binaryNotesRef = useRef(null);
 
   // Load persisted level and streak on mount
   useEffect(() => {
@@ -71,6 +72,11 @@ export function useGameState() {
     startMicro();
   }
 
+  function beginBinary(note1, note2) {
+    audioEngine.initSync();
+    startBinary(note1, note2);
+  }
+
   async function startSession(type = 'evening') {
     setSessionType(type);
     setTrialIndex(0);
@@ -93,10 +99,25 @@ export function useGameState() {
     launchTrial(0, 'micro', false);
   }
 
+  async function startBinary(note1, note2) {
+    binaryNotesRef.current = [note1, note2];
+    setSessionType('binary');
+    setTrialIndex(0);
+    setRecentResults([]);
+    setConsecutiveResults([]);
+    setSessionFatigue(false);
+    setIsColdStart(false);
+    setScreen('trial');
+    launchTrial(0, 'binary', false);
+  }
+
   async function launchTrial(idx, sessType, cold) {
     const inst = INSTRUMENTS[Math.floor(Math.random() * INSTRUMENTS.length)];
+    const notes = (sessType === 'binary' && binaryNotesRef.current)
+      ? binaryNotesRef.current
+      : LEVEL_NOTES[level] || CHROMAS;
     const trial = generateTrial({
-      activeNotes: LEVEL_NOTES[level] || CHROMAS,
+      activeNotes: notes,
       level,
       instrumentId: inst,
       trialIndexInSession: idx,
@@ -161,15 +182,16 @@ export function useGameState() {
       newRecent.reduce((a, b) => a + b, 0) / newRecent.length < FATIGUE_THRESHOLD;
     if (fatigue) setSessionFatigue(true);
 
-    // Advancement check (last 50 trials)
-    const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
-    if (last50.length >= ADVANCEMENT_TRIALS) {
-      const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
-      // latency advancement tracked separately — simplified here
-      if (acc >= ADVANCEMENT_ACCURACY && level < 12) {
-        const newLevel = level + 1;
-        setLevel(newLevel);
-        setMeta('level', newLevel);
+    // Advancement check (last 50 trials) — disabled in binary mode
+    if (trial.sessionType !== 'binary') {
+      const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
+      if (last50.length >= ADVANCEMENT_TRIALS) {
+        const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
+        if (acc >= ADVANCEMENT_ACCURACY && level < 12) {
+          const newLevel = level + 1;
+          setLevel(newLevel);
+          setMeta('level', newLevel);
+        }
       }
     }
 
@@ -235,7 +257,7 @@ export function useGameState() {
       setScreen('home');
       return;
     }
-    if (sessionFatigue) {
+    if (sessionFatigue && sessionType !== 'binary') {
       setScreen('home');
       return;
     }
@@ -297,6 +319,7 @@ export function useGameState() {
     matrixStore,
     startSession: beginSession,
     startMicro: beginMicro,
+    startBinary: beginBinary,
     handleNotePress,
     handleConfidence,
     handleTimeout,
