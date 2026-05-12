@@ -91,6 +91,17 @@ export async function setMeta(key, value) {
   });
 }
 
+export async function clearHistory() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['trials', 'ambient'], 'readwrite');
+    tx.objectStore('trials').clear();
+    tx.objectStore('ambient').clear();
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 // CSV export
 export async function exportCSV() {
   const trials = await getAllTrials();
