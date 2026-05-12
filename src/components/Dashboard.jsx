@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getAllTrials, exportCSV } from '../db/db.js';
+import { getAllTrials, exportCSV, clearHistory } from '../db/db.js';
 import { CHROMAS } from '../audio/constants.js';
 
 function buildConfusionGrid(trials, filter = 'all') {
@@ -118,6 +118,8 @@ export default function Dashboard({ onBack }) {
   const [trials, setTrials] = useState([]);
   const [matrixFilter, setMatrixFilter] = useState('all');
   const [exporting, setExporting] = useState(false);
+  const [confirmWipe, setConfirmWipe] = useState(false);
+  const [wiping, setWiping] = useState(false);
 
   useEffect(() => {
     getAllTrials().then(setTrials);
@@ -142,6 +144,14 @@ export default function Dashboard({ onBack }) {
     setExporting(false);
   }
 
+  async function doWipe() {
+    setWiping(true);
+    await clearHistory();
+    setTrials([]);
+    setWiping(false);
+    setConfirmWipe(false);
+  }
+
   const totalTrials = trials.length;
   const correctTrials = trials.filter(t => t.result_bool).length;
   const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
@@ -156,10 +166,25 @@ export default function Dashboard({ onBack }) {
       <div className="dash-header">
         <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Dashboard</h2>
-        <button className="export-btn" onClick={doExport} disabled={exporting}>
-          {exporting ? '...' : 'Export CSV'}
-        </button>
+        <div className="dash-actions">
+          <button className="export-btn" onClick={doExport} disabled={exporting}>
+            {exporting ? '...' : 'Export CSV'}
+          </button>
+          <button className="wipe-btn" onClick={() => setConfirmWipe(true)} disabled={confirmWipe}>
+            Wipe History
+          </button>
+        </div>
       </div>
+
+      {confirmWipe && (
+        <div className="wipe-confirm-bar">
+          <span>Delete all trial and ambient data?</span>
+          <button className="back-btn" onClick={() => setConfirmWipe(false)}>Cancel</button>
+          <button className="wipe-btn danger" onClick={doWipe} disabled={wiping}>
+            {wiping ? '...' : 'Yes, wipe'}
+          </button>
+        </div>
+      )}
 
       <div className="stat-row">
         <div className="stat"><span className="stat-value">{totalTrials}</span><span className="stat-label">trials</span></div>

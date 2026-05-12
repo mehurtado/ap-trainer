@@ -471,6 +471,41 @@ body {
 }
 .back-btn:hover, .export-btn:hover { color: var(--text); }
 
+.dash-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wipe-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font);
+  transition: color 0.12s, border-color 0.12s;
+}
+.wipe-btn:hover:not(:disabled) { color: var(--wrong); border-color: var(--wrong); }
+.wipe-btn.danger { color: var(--wrong); border-color: var(--wrong); }
+.wipe-btn.danger:hover:not(:disabled) { opacity: 0.8; }
+.wipe-btn:disabled { opacity: 0.4; cursor: default; }
+
+.wipe-confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.wipe-confirm-bar span { flex: 1; }
+
 .matrix-wrap { overflow-x: auto; }
 .matrix-wrap h3 {
   font-size: 11px;
@@ -543,6 +578,62 @@ body {
   color: var(--text-dim);
   padding: 20px 0;
 }
+
+/* ── Binary picker ────────────────────────────────────────────────────────── */
+.session-btn.binary-active {
+  border-color: #444;
+  color: var(--text);
+}
+
+.binary-picker {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.binary-picker-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.binary-note-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.binary-note-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  font-family: var(--font);
+  padding: 13px 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.08s, border-color 0.08s;
+  letter-spacing: 0.3px;
+}
+
+.binary-note-btn:hover {
+  background: var(--bg);
+  border-color: #484848;
+}
+:root[data-theme="light"] .binary-note-btn:hover { border-color: #bbb; }
+
+.binary-note-btn.selected {
+  border-color: var(--text-dim);
+  color: var(--text-bright);
+  background: var(--bg);
+}
+:root[data-theme="light"] .binary-note-btn.selected { border-color: #888; }
 
 /* ── Ambient ──────────────────────────────────────────────────────────────── */
 .ambient-form {

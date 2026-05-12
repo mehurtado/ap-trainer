@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { CHROMAS } from '../audio/constants.js';
 
 const MAX_LEVEL = 12;
 
@@ -8,12 +9,44 @@ export default function HomeScreen({
   onStartEvening,
   onStartColdStart,
   onStartMicro,
+  onStartBinary,
   onDashboard,
   onAmbient,
   onSetLevel,
   theme,
   onToggleTheme,
 }) {
+  const [showBinaryPicker, setShowBinaryPicker] = useState(false);
+  const [pickedNotes, setPickedNotes] = useState([]);
+
+  function toggleNote(note) {
+    setPickedNotes(prev => {
+      if (prev.includes(note)) return prev.filter(n => n !== note);
+      if (prev.length < 2) return [...prev, note];
+      return [prev[1], note];
+    });
+  }
+
+  function openPicker() {
+    setShowBinaryPicker(true);
+    setPickedNotes([]);
+  }
+
+  function closePicker() {
+    setShowBinaryPicker(false);
+    setPickedNotes([]);
+  }
+
+  function startBinary() {
+    onStartBinary(pickedNotes[0], pickedNotes[1]);
+    closePicker();
+  }
+
+  const pickerLabel =
+    pickedNotes.length === 0 ? 'Pick two notes' :
+    pickedNotes.length === 1 ? `${pickedNotes[0]} · pick second note` :
+    `${pickedNotes[0]} vs ${pickedNotes[1]}`;
+
   return (
     <div className="screen home-screen">
       <div className="home-header">
@@ -53,6 +86,36 @@ export default function HomeScreen({
           Micro (3 trials)
           <span className="btn-sub">Quick practice · no wipe</span>
         </button>
+
+        <button
+          className={`session-btn micro${showBinaryPicker ? ' binary-active' : ''}`}
+          onClick={showBinaryPicker ? closePicker : openPicker}
+        >
+          Binary Drill
+          <span className="btn-sub">Two-note focus · no advancement</span>
+        </button>
+
+        {showBinaryPicker && (
+          <div className="binary-picker">
+            <div className="binary-picker-label">{pickerLabel}</div>
+            <div className="binary-note-grid">
+              {CHROMAS.map(note => (
+                <button
+                  key={note}
+                  className={`binary-note-btn${pickedNotes.includes(note) ? ' selected' : ''}`}
+                  onClick={() => toggleNote(note)}
+                >
+                  {note}
+                </button>
+              ))}
+            </div>
+            {pickedNotes.length === 2 && (
+              <button className="session-btn primary" onClick={startBinary}>
+                Start →
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="secondary-buttons">
