@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { audioEngine } from '../audio/AudioEngine.js';
 import { generateTrial, playTrial, getActiveNotes } from '../audio/TrialEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
