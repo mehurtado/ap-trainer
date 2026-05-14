@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import NoteGrid from './NoteGrid.jsx';
 
 export default function TrialScreen({
@@ -8,6 +8,8 @@ export default function TrialScreen({
   onTimeout,
   showConfidenceOverlay,
   onConfidence,
+  secondInstinctPrompt,
+  onSecondInstinct,
   level,
   trialIndex,
   sessionType,
@@ -43,12 +45,15 @@ export default function TrialScreen({
     return () => clearInterval(intervalRef.current);
   }, [currentTrial]);
 
-  // Stop timer once confidence overlay appears
+  // Stop timer once confidence overlay appears or second instinct appears
   useEffect(() => {
-    if (showConfidenceOverlay) {
+    if (showConfidenceOverlay || secondInstinctPrompt) {
       clearInterval(intervalRef.current);
     }
-  }, [showConfidenceOverlay]);
+  }, [showConfidenceOverlay, secondInstinctPrompt]);
+
+  // Prevent unused variable warning
+  if (sessionType) {}
 
   if (!currentTrial) return null;
 
@@ -60,7 +65,6 @@ export default function TrialScreen({
         {sessionTotal > 0 && (
           <span className="session-record">{sessionCorrect}/{sessionTotal}</span>
         )}
-        {currentTrial.isWarmup && <span className="tag">warm-up</span>}
         {currentTrial.isColdStart && <span className="tag cold">cold start</span>}
         <button className="quit-btn" onClick={onQuit}>✕</button>
       </div>
@@ -97,11 +101,26 @@ export default function TrialScreen({
         </div>
       )}
 
-      {showConfidenceOverlay && (
+      {showConfidenceOverlay && !secondInstinctPrompt && (
         <div className="confidence-overlay">
           <p>Confidence?</p>
           <button className="conf-btn high" onClick={() => onConfidence('high')}>Sure</button>
           <button className="conf-btn low" onClick={() => onConfidence('low')}>Unsure</button>
+        </div>
+      )}
+
+      {secondInstinctPrompt && (
+        <div className="confidence-overlay second-instinct">
+          <p>Did you immediately know the correct answer?</p>
+          <div className="si-buttons">
+            <button className="conf-btn low" onClick={() => onSecondInstinct(false, null)}>No</button>
+          </div>
+          <p>If yes, which one?</p>
+          <div className="si-grid">
+            {activeNotes.map(n => (
+              <button key={n} className="conf-btn high" onClick={() => onSecondInstinct(true, n)}>{n}</button>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -22,9 +22,9 @@ function randomInstrumentOctaveForChroma(chroma) {
 }
 
 // Overall mix: 40% sine, 12% detuned, 6% noise, 42% clean instrument.
-// Binary sessions always get clean instrument (no detuning, no noise).
-function pickStimulusType(level, isWarmup = false, isBinary = false) {
-  if (isWarmup || isBinary) return 'instrument';
+// Drill sessions bypass detuned and noise entirely (always clean instrument).
+function pickStimulusType(level, isDrill = false) {
+  if (isDrill) return 'instrument';
   const roll = Math.random();
   if (roll < 0.40) return 'sine';
   if (roll < 0.52) return 'detuned';
@@ -34,8 +34,6 @@ function pickStimulusType(level, isWarmup = false, isBinary = false) {
 
 // Generates the next trial spec given active notes and level
 export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType }) {
-  const isWarmup = trialIndexInSession < 10 && level < 12;
-
   // Pick target chroma
   let targetChroma;
   if (level === 12 && confusionMatrix) {
@@ -49,7 +47,8 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
   const reg = INSTRUMENT_REGISTERS[inst];
   const octave = randInt(reg.min, reg.max);
 
-  const stimType = pickStimulusType(level, isWarmup, sessionType === 'binary');
+  const isDrill = sessionType === 'binary' || sessionType === 'drill';
+  const stimType = pickStimulusType(level, isDrill);
   let centOffset = 0;
   let centDirection = 'none';
 
@@ -68,10 +67,9 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
     centOffset,
     centDirection,
     noiseType,
-    isWarmup,
     hz: chromaOctaveToHz(targetChroma, octave, centOffset),
-    responseWindowMs: isWarmup ? 1800 : 1500,
-    durationMs: isWarmup ? 1000 : 800,
+    responseWindowMs: 1500,
+    durationMs: 800,
   };
 }
 

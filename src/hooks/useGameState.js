@@ -18,7 +18,8 @@ export function useGameState() {
   const [sessionType, setSessionType] = useState('evening');
   const [trialIndex, setTrialIndex] = useState(0);
   const [currentTrial, setCurrentTrial] = useState(null);
-  const [feedback, setFeedback] = useState(null);   // { correct, guess, target, neighbors }
+  const [feedback, setFeedback] = useState(null);   // { correct, guess, target, neighbors, isTimeout, confidence }
+  const [secondInstinctPrompt, setSecondInstinctPrompt] = useState(false);
   const [, setWipeEndTime] = useState(0);
   const [wipeProgress, setWipeProgress] = useState(0);
   const [isColdStart, setIsColdStart] = useState(false);
@@ -38,7 +39,7 @@ export function useGameState() {
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
   const lastTrialTime = useRef(null);
-  const binaryNotesRef = useRef(null);
+  const drillNotesRef = useRef(null);
 
   // Load persisted level and streak on mount
   useEffect(() => {
@@ -72,9 +73,9 @@ export function useGameState() {
     startMicro();
   }
 
-  function beginBinary(note1, note2) {
+  function beginDrill(notes) {
     audioEngine.initSync();
-    startBinary(note1, note2);
+    startDrill(notes);
   }
 
   async function startSession(type = 'evening') {
@@ -99,22 +100,22 @@ export function useGameState() {
     launchTrial(0, 'micro', false);
   }
 
-  async function startBinary(note1, note2) {
-    binaryNotesRef.current = [note1, note2];
-    setSessionType('binary');
+  async function startDrill(notes) {
+    drillNotesRef.current = notes;
+    setSessionType('drill');
     setTrialIndex(0);
     setRecentResults([]);
     setConsecutiveResults([]);
     setSessionFatigue(false);
     setIsColdStart(false);
     setScreen('trial');
-    launchTrial(0, 'binary', false);
+    launchTrial(0, 'drill', false);
   }
 
   async function launchTrial(idx, sessType, cold) {
     const inst = INSTRUMENTS[Math.floor(Math.random() * INSTRUMENTS.length)];
-    const notes = (sessType === 'binary' && binaryNotesRef.current)
-      ? binaryNotesRef.current
+    const notes = (sessType === 'drill' && drillNotesRef.current)
+      ? drillNotesRef.current
       : LEVEL_NOTES[level] || CHROMAS;
     const trial = generateTrial({
       activeNotes: notes,
@@ -162,6 +163,25 @@ export function useGameState() {
     const isTimeout = chroma === '__timeout__';
     const correct = !isTimeout && chroma === trial.targetChroma &&
       (notExactMode ? pendingGuess?.direction === trial.centDirection : true);
+
+    if (!correct && !isTimeout && confidence === 'low') {
+      // Need second instinct prompt
+      setSecondInstinctPrompt({ chroma, latencyMs, confidence, correct });
+      return;
+    }
+
+    await finalizeGuess(chroma, latencyMs, confidence, correct, isTimeout, false, null);
+  }
+
+  function handleSecondInstinct(hadSecondInstinct, secondInstinctNote) {
+    if (!secondInstinctPrompt) return;
+    const { chroma, latencyMs, confidence, correct } = secondInstinctPrompt;
+    setSecondInstinctPrompt(false);
+    finalizeGuess(chroma, latencyMs, confidence, correct, false, hadSecondInstinct, secondInstinctNote);
+  }
+
+  async function finalizeGuess(chroma, latencyMs, confidence, correct, isTimeout, hadSecondInstinct, secondInstinctNote) {
+    const trial = currentTrial;
     const isSine = trial.stimType === 'sine';
 
     // Record in confusion matrices
@@ -183,8 +203,8 @@ export function useGameState() {
       newRecent.reduce((a, b) => a + b, 0) / newRecent.length < FATIGUE_THRESHOLD;
     if (fatigue) setSessionFatigue(true);
 
-    // Advancement check (last 50 trials) — disabled in binary mode
-    if (trial.sessionType !== 'binary') {
+    // Advancement check (last 50 trials) — disabled in drill mode
+    if (trial.sessionType !== 'drill') {
       const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
       if (last50.length >= ADVANCEMENT_TRIALS) {
         const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
@@ -227,11 +247,15 @@ export function useGameState() {
       latency_ms: latencyMs,
       result_bool: correct,
       timeout_flag: isTimeout,
+      second_instinct_flag: hadSecondInstinct,
+      second_instinct_note: secondInstinctNote,
       level,
       session_fatigue_flag: fatigue,
       cognitive_load_level: cognitiveLoad,
       intoxication_flag: intoxicationFlag,
       session_type: trial.sessionType,
+      drill_mode_flag: trial.sessionType === 'drill',
+      drill_notes: trial.sessionType === 'drill' ? drillNotesRef.current : null,
       contamination_flag: contaminationFlag,
       notes: '',
     };
@@ -247,6 +271,7 @@ export function useGameState() {
       guess: isTimeout ? 'TIMEOUT' : chroma,
       target: trial.targetChroma,
       isTimeout,
+      confidence,
       neighbors: topPairs,
     });
 
@@ -258,7 +283,7 @@ export function useGameState() {
       setScreen('home');
       return;
     }
-    if (sessionFatigue && sessionType !== 'binary') {
+    if (sessionFatigue && sessionType !== 'drill') {
       setScreen('home');
       return;
     }
@@ -305,6 +330,7 @@ export function useGameState() {
     trialIndex,
     currentTrial,
     feedback,
+    secondInstinctPrompt,
     wipeProgress,
     isColdStart,
     sessionFatigue,
@@ -320,10 +346,11 @@ export function useGameState() {
     matrixStore,
     startSession: beginSession,
     startMicro: beginMicro,
-    startBinary: beginBinary,
+    startDrill: beginDrill,
     handleNotePress,
     handleConfidence,
     handleTimeout,
+    handleSecondInstinct,
     proceedAfterFeedback,
     goHome,
   };

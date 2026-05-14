@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { saveAmbient, getAllAmbient } from '../db/db.js';
 import { CHROMAS } from '../audio/constants.js';
 
