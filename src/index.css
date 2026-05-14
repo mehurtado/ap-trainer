@@ -540,6 +540,21 @@ body {
   gap: 8px;
 }
 
+.filter-dropdown {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font);
+  outline: none;
+}
+.filter-dropdown:focus { border-color: #555; }
+:root[data-theme="light"] .filter-dropdown:focus { border-color: #888; }
+.filter-dropdown option { background: var(--bg); color: var(--text); }
+
 .filter-btn {
   background: transparent;
   border: 1px solid var(--border);

@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
-
 const CHROMATIC_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export default function NoteGrid({ activeNotes, onPress, disabled }) {

@@ -102,12 +102,12 @@ export async function clearHistory() {
   });
 }
 
-const sanitizeForCSV = (val) => {
-  if (typeof val === 'string' && /^[=+\-@\t\r]/.test(val)) {
-    return "'" + val;
+export function sanitizeForCSV(value) {
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(value)) {
+    return "'" + value;
   }
-  return val;
-};
+  return value;
+}
 
 // CSV export
 export async function exportCSV() {
@@ -130,17 +130,9 @@ export async function exportCSV() {
   ];
 
   const toCSV = (headers, rows) => {
-    const headerCount = headers.length;
-    const rowCount = rows.length;
-    const lines = new Array(rowCount + 1);
-    lines[0] = headers.join(',');
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows[i];
-      const rowValues = new Array(headerCount);
-      for (let j = 0; j < headerCount; j++) {
-        rowValues[j] = sanitizeForCSV(row[headers[j]] ?? '');
-      }
-      lines[i + 1] = JSON.stringify(rowValues).slice(1, -1);
+    const lines = [headers.join(',')];
+    for (const row of rows) {
+      lines.push(headers.map(h => JSON.stringify(sanitizeForCSV(row[h] ?? ''))).join(','));
     }
     return lines.join('\n');
   };
