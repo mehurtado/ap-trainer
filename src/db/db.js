@@ -123,9 +123,17 @@ export async function exportCSV() {
   ];
 
   const toCSV = (headers, rows) => {
-    const lines = [headers.join(',')];
-    for (const row of rows) {
-      lines.push(headers.map(h => JSON.stringify(row[h] ?? '')).join(','));
+    const headerCount = headers.length;
+    const rowCount = rows.length;
+    const lines = new Array(rowCount + 1);
+    lines[0] = headers.join(',');
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows[i];
+      const rowValues = new Array(headerCount);
+      for (let j = 0; j < headerCount; j++) {
+        rowValues[j] = row[headers[j]] ?? '';
+      }
+      lines[i + 1] = JSON.stringify(rowValues).slice(1, -1);
     }
     return lines.join('\n');
   };
