@@ -102,6 +102,13 @@ export async function clearHistory() {
   });
 }
 
+export function sanitizeForCSV(value) {
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(value)) {
+    return "'" + value;
+  }
+  return value;
+}
+
 // CSV export
 export async function exportCSV() {
   const trials = await getAllTrials();
@@ -125,7 +132,7 @@ export async function exportCSV() {
   const toCSV = (headers, rows) => {
     const lines = [headers.join(',')];
     for (const row of rows) {
-      lines.push(headers.map(h => JSON.stringify(row[h] ?? '')).join(','));
+      lines.push(headers.map(h => JSON.stringify(sanitizeForCSV(row[h] ?? ''))).join(','));
     }
     return lines.join('\n');
   };
