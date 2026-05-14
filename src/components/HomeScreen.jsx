@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CHROMAS } from '../audio/constants.js';
 
 const MAX_LEVEL = 12;
@@ -9,43 +9,42 @@ export default function HomeScreen({
   onStartEvening,
   onStartColdStart,
   onStartMicro,
-  onStartBinary,
+  onStartDrill,
   onDashboard,
   onAmbient,
   onSetLevel,
   theme,
   onToggleTheme,
 }) {
-  const [showBinaryPicker, setShowBinaryPicker] = useState(false);
+  const [showDrillPicker, setShowDrillPicker] = useState(false);
   const [pickedNotes, setPickedNotes] = useState([]);
 
   function toggleNote(note) {
     setPickedNotes(prev => {
       if (prev.includes(note)) return prev.filter(n => n !== note);
-      if (prev.length < 2) return [...prev, note];
-      return [prev[1], note];
+      return [...prev, note];
     });
   }
 
   function openPicker() {
-    setShowBinaryPicker(true);
+    setShowDrillPicker(true);
     setPickedNotes([]);
   }
 
   function closePicker() {
-    setShowBinaryPicker(false);
+    setShowDrillPicker(false);
     setPickedNotes([]);
   }
 
-  function startBinary() {
-    onStartBinary(pickedNotes[0], pickedNotes[1]);
+  function startDrill() {
+    onStartDrill(pickedNotes);
     closePicker();
   }
 
   const pickerLabel =
-    pickedNotes.length === 0 ? 'Pick two notes' :
+    pickedNotes.length === 0 ? 'Pick two or more notes' :
     pickedNotes.length === 1 ? `${pickedNotes[0]} · pick second note` :
-    `${pickedNotes[0]} vs ${pickedNotes[1]}`;
+    pickedNotes.join(' vs ');
 
   return (
     <div className="screen home-screen">
@@ -88,14 +87,14 @@ export default function HomeScreen({
         </button>
 
         <button
-          className={`session-btn micro${showBinaryPicker ? ' binary-active' : ''}`}
-          onClick={showBinaryPicker ? closePicker : openPicker}
+          className={`session-btn micro${showDrillPicker ? ' binary-active' : ''}`}
+          onClick={showDrillPicker ? closePicker : openPicker}
         >
-          Binary Drill
-          <span className="btn-sub">Two-note focus · no advancement</span>
+          Drill Mode
+          <span className="btn-sub">Custom subset focus · no advancement</span>
         </button>
 
-        {showBinaryPicker && (
+        {showDrillPicker && (
           <div className="binary-picker">
             <div className="binary-picker-label">{pickerLabel}</div>
             <div className="binary-note-grid">
@@ -109,8 +108,8 @@ export default function HomeScreen({
                 </button>
               ))}
             </div>
-            {pickedNotes.length === 2 && (
-              <button className="session-btn primary" onClick={startBinary}>
+            {pickedNotes.length >= 2 && (
+              <button className="session-btn primary" onClick={startDrill}>
                 Start →
               </button>
             )}

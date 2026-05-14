@@ -1,4 +1,4 @@
-import React from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameState } from './hooks/useGameState.js';
 import { useTheme } from './hooks/useTheme.js';
 import HomeScreen from './components/HomeScreen.jsx';
@@ -24,7 +24,7 @@ export default function App() {
         onDashboard={() => g.setScreen('dashboard')}
         onAmbient={() => g.setScreen('ambient')}
         onSetLevel={g.setLevel}
-        onStartBinary={g.startBinary}
+        onStartDrill={g.startDrill}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
@@ -42,6 +42,8 @@ export default function App() {
         onTimeout={g.handleTimeout}
         showConfidenceOverlay={g.showConfidenceOverlay}
         onConfidence={g.handleConfidence}
+        secondInstinctPrompt={g.secondInstinctPrompt}
+        onSecondInstinct={g.handleSecondInstinct}
         level={g.level}
         trialIndex={g.trialIndex}
         sessionType={g.sessionType}
