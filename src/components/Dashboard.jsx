@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { getAllTrials, exportCSV, clearHistory } from '../db/db.js';
-import { CHROMAS } from '../audio/constants.js';
+import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
 function buildConfusionGrid(trials, filter = 'all') {
   const grid = {};
   for (const c of CHROMAS) { grid[c] = {}; for (const r of CHROMAS) grid[c][r] = 0; }
   for (const t of trials) {
     if (filter === 'sine' && !t.sine_wave_flag) continue;
-    if (filter === 'instrument' && (t.sine_wave_flag || t.noise_masked_flag)) continue;
+    if (filter === 'instrument' && (t.sine_wave_flag || t.noise_masked_flag || Math.abs(t.cents_offset || 0) > 0)) continue;
+    if (filter === 'detuned' && Math.abs(t.cents_offset || 0) === 0) continue;
+    if (filter === 'noise' && !t.noise_masked_flag) continue;
+    if (filter.startsWith('inst:') && t.instrument_id !== filter.slice(5)) continue;
+
     if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.target_chroma) {
       grid[t.target_chroma][t.user_guess] = (grid[t.target_chroma][t.user_guess] || 0) + 1;
     }
@@ -155,10 +159,24 @@ export default function Dashboard({ onBack }) {
   const totalTrials = trials.length;
   const correctTrials = trials.filter(t => t.result_bool).length;
   const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+  const incorrectAcc = totalTrials ? ((totalTrials - correctTrials) / totalTrials * 100).toFixed(1) : '--';
 
   const sineTrials = trials.filter(t => t.sine_wave_flag);
   const sineAcc = sineTrials.length
     ? (sineTrials.filter(t => t.result_bool).length / sineTrials.length * 100).toFixed(1)
+    : '--';
+
+  const timeouts = trials.filter(t => t.timeout_flag || t.user_guess === 'TIMEOUT').length;
+  const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+
+  const validRtTrials = trials.filter(t => typeof t.latency_ms === 'number' && t.latency_ms > 0);
+  const avgRt = validRtTrials.length
+    ? Math.round(validRtTrials.reduce((sum, t) => sum + t.latency_ms, 0) / validRtTrials.length)
+    : '--';
+
+  const validCorrectRtTrials = validRtTrials.filter(t => t.result_bool);
+  const avgRtCorrect = validCorrectRtTrials.length
+    ? Math.round(validCorrectRtTrials.reduce((sum, t) => sum + t.latency_ms, 0) / validCorrectRtTrials.length)
     : '--';
 
   return (
@@ -189,18 +207,37 @@ export default function Dashboard({ onBack }) {
       <div className="stat-row">
         <div className="stat"><span className="stat-value">{totalTrials}</span><span className="stat-label">trials</span></div>
         <div className="stat"><span className="stat-value">{overallAcc}%</span><span className="stat-label">overall</span></div>
+        <div className="stat"><span className="stat-value">{incorrectAcc}%</span><span className="stat-label">incorrect</span></div>
         <div className="stat"><span className="stat-value">{sineAcc}%</span><span className="stat-label">sine wave</span></div>
+      </div>
+
+      <div className="stat-row">
+        <div className="stat"><span className="stat-value">{timeoutFreq}%</span><span className="stat-label">timeout freq</span></div>
+        <div className="stat"><span className="stat-value">{avgRt}{avgRt !== '--' ? 'ms' : ''}</span><span className="stat-label">avg RT (all)</span></div>
+        <div className="stat"><span className="stat-value">{avgRtCorrect}{avgRtCorrect !== '--' ? 'ms' : ''}</span><span className="stat-label">avg RT (correct)</span></div>
       </div>
 
       <AccuracyChart trials={trials} />
 
       <div className="matrix-filter">
-        {['all', 'sine', 'instrument'].map(f => (
+        {['all', 'sine', 'instrument', 'detuned', 'noise'].map(f => (
           <button key={f} className={`filter-btn ${matrixFilter === f ? 'active' : ''}`}
             onClick={() => setMatrixFilter(f)}>
             {f}
           </button>
         ))}
+        <select
+          className="filter-dropdown"
+          value={matrixFilter.startsWith('inst:') ? matrixFilter : ''}
+          onChange={(e) => setMatrixFilter(e.target.value)}
+        >
+          <option value="" disabled>Per Instrument</option>
+          {INSTRUMENTS.map(inst => (
+            <option key={inst} value={`inst:${inst}`}>
+              {inst}
+            </option>
+          ))}
+        </select>
       </div>
 
       <ConfusionMatrix grid={grid} title={`Confusion Matrix (${matrixFilter})`} />
