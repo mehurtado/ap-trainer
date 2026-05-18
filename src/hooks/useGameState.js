@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { audioEngine } from '../audio/AudioEngine.js';
-import { generateTrial, playTrial, getActiveNotes } from '../audio/TrialEngine.js';
+import { generateTrial, playTrial } from '../audio/TrialEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
 import { LEVEL_NOTES, CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 import { saveTrial, getMeta, setMeta } from '../db/db.js';
 
 const ADVANCEMENT_TRIALS = 50;
 const ADVANCEMENT_ACCURACY = 0.90;
-const ADVANCEMENT_LATENCY_MS = 1200;
 const FATIGUE_WINDOW = 5;
 const FATIGUE_THRESHOLD = 0.70;
 const COLD_START_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -132,6 +131,7 @@ export function useGameState() {
     const startMs = await playTrial(trial);
     setAudioStartMs(startMs);
     setShowConfidenceOverlay(false);
+    setSecondInstinctPrompt(false);
     setPendingGuess(null);
   }
 

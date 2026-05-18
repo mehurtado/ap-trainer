@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { saveAmbient, getAllAmbient } from '../db/db.js';
 import { CHROMAS } from '../audio/constants.js';
 
@@ -15,13 +15,13 @@ export default function AmbientLog({ onBack }) {
   });
 
   useEffect(() => {
-    getAllAmbient().then(e => setEntries(e.reverse()));
+    getAllAmbient().then(e => setEntries([...e].reverse()));
   }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
     await saveAmbient({ ...form, confidence: parseInt(form.confidence) });
-    getAllAmbient().then(e => setEntries(e.reverse()));
+    getAllAmbient().then(e => setEntries([...e].reverse()));
     setForm({ sound_source: '', user_guess: '', confidence: '2', verified: false, verified_pitch: '', identification_mode: 'unclear', notes: '' });
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { CHROMAS } from '../audio/constants.js';
 
 const MAX_LEVEL = 12;

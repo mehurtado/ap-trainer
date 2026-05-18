@@ -12,12 +12,12 @@ export default function TrialScreen({
   onSecondInstinct,
   level,
   trialIndex,
-  sessionType,
   notExactMode,
   sessionCorrect,
   sessionTotal,
   onQuit,
 }) {
+
   const [timeLeft, setTimeLeft] = useState(100);
   const intervalRef = useRef(null);
   const didTimeout = useRef(false);
@@ -51,9 +51,6 @@ export default function TrialScreen({
       clearInterval(intervalRef.current);
     }
   }, [showConfidenceOverlay, secondInstinctPrompt]);
-
-  // Prevent unused variable warning
-  if (sessionType) {}
 
   if (!currentTrial) return null;
 

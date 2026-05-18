@@ -76,7 +76,7 @@ test('generateTrial with level 12 and confusionMatrix uses adversarialPick', () 
     instrumentId: 'piano',
     trialIndexInSession: 15,
     confusionMatrix: cm,
-    sessionType: 'adversarial'
+    sessionType: 'evening'
   };
 
   const trial = generateTrial(params);

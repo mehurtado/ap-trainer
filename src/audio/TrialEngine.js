@@ -47,7 +47,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
   const reg = INSTRUMENT_REGISTERS[inst];
   const octave = randInt(reg.min, reg.max);
 
-  const isDrill = sessionType === 'binary' || sessionType === 'drill';
+  const isDrill = sessionType === 'drill';
   const stimType = pickStimulusType(level, isDrill);
   let centOffset = 0;
   let centDirection = 'none';

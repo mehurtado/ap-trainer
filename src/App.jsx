@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
 import { useGameState } from './hooks/useGameState.js';
 import { useTheme } from './hooks/useTheme.js';
 import HomeScreen from './components/HomeScreen.jsx';
@@ -46,7 +45,6 @@ export default function App() {
         onSecondInstinct={g.handleSecondInstinct}
         level={g.level}
         trialIndex={g.trialIndex}
-        sessionType={g.sessionType}
         notExactMode={g.notExactMode}
         sessionCorrect={correct}
         sessionTotal={total}

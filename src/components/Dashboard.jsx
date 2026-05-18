@@ -38,7 +38,7 @@ function ConfusionMatrix({ grid, title }) {
                 <div
                   key={response}
                   className={`matrix-cell ${isDiag ? 'diag' : ''}`}
-                  style={{ backgroundColor: isDiag ? '#1a1a1a' : `rgba(255,60,60,${intensity})` }}
+                  style={{ backgroundColor: isDiag ? 'var(--bg3)' : `rgba(255,60,60,${intensity})` }}
                   title={`${target}→${response}: ${val}`}
                 >
                   {val > 0 && !isDiag ? val : ''}
@@ -159,7 +159,6 @@ export default function Dashboard({ onBack }) {
   const totalTrials = trials.length;
   const correctTrials = trials.filter(t => t.result_bool).length;
   const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
-  const incorrectAcc = totalTrials ? ((totalTrials - correctTrials) / totalTrials * 100).toFixed(1) : '--';
 
   const sineTrials = trials.filter(t => t.sine_wave_flag);
   const sineAcc = sineTrials.length
@@ -169,7 +168,7 @@ export default function Dashboard({ onBack }) {
   const timeouts = trials.filter(t => t.timeout_flag || t.user_guess === 'TIMEOUT').length;
   const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
 
-  const validRtTrials = trials.filter(t => typeof t.latency_ms === 'number' && t.latency_ms > 0);
+  const validRtTrials = trials.filter(t => typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag);
   const avgRt = validRtTrials.length
     ? Math.round(validRtTrials.reduce((sum, t) => sum + t.latency_ms, 0) / validRtTrials.length)
     : '--';
@@ -207,7 +206,6 @@ export default function Dashboard({ onBack }) {
       <div className="stat-row">
         <div className="stat"><span className="stat-value">{totalTrials}</span><span className="stat-label">trials</span></div>
         <div className="stat"><span className="stat-value">{overallAcc}%</span><span className="stat-label">overall</span></div>
-        <div className="stat"><span className="stat-value">{incorrectAcc}%</span><span className="stat-label">incorrect</span></div>
         <div className="stat"><span className="stat-value">{sineAcc}%</span><span className="stat-label">sine wave</span></div>
       </div>
 
