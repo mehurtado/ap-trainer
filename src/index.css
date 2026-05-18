@@ -1,7 +1,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 /* ── Themes ───────────────────────────────────────────────────────────────── */
-:root {
+:root,
+:root[data-theme="dark"] {
   --bg:          #0f0f0f;
   --bg2:         #161616;
   --bg3:         #1e1e1e;
@@ -31,6 +32,7 @@
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -159,7 +161,7 @@ body {
 :root[data-theme="light"] .session-btn:hover { border-color: #bbb; }
 .session-btn.primary { color: var(--text-bright); border-color: #3c3c3c; }
 :root[data-theme="light"] .session-btn.primary { border-color: #bbb; }
-.session-btn.micro { color: var(--text-dim); }
+.session-btn.micro { color: var(--text); }
 
 .btn-sub {
   font-size: 11px;
