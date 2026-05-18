@@ -792,6 +792,29 @@ body {
 :root[data-theme="light"] .adaptive-btn:hover  { border-color: #bbb; }
 :root[data-theme="light"] .adaptive-btn.active { border-color: #888; }
 
+/* ── Tooltip ──────────────────────────────────────────────────────────────── */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 6px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+[data-tip]:hover::after { opacity: 1; }
+
 .adaptive-hint {
   font-size: 10px;
   color: var(--text-dim);

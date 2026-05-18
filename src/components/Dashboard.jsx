@@ -318,7 +318,9 @@ export default function Dashboard({ onBack }) {
         <div className="stat"><span className="stat-value">{overallAcc}%</span><span className="stat-label">overall</span></div>
         <div className="stat"><span className="stat-value">{sineAcc}%</span><span className="stat-label">sine</span></div>
         {siAcc !== '--' && (
-          <div className="stat"><span className="stat-value">{siAcc}%</span><span className="stat-label">SI accuracy</span></div>
+          <div className="stat" data-tip="How often your gut instinct (named after a wrong + unsure answer) was the correct note">
+            <span className="stat-value">{siAcc}%</span><span className="stat-label">SI accuracy</span>
+          </div>
         )}
       </div>
 
