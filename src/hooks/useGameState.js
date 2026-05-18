@@ -25,14 +25,21 @@ export function useGameState() {
   const [sessionFatigue, setSessionFatigue] = useState(false);
   const [recentResults, setRecentResults] = useState([]);  // rolling window
   const [streak, setStreak] = useState(0);
-  const [cognitiveLoad, setCognitiveLoad] = useState('low');
-  const [intoxicationFlag, setIntoxicationFlag] = useState('none');
-  const [contaminationFlag, setContaminationFlag] = useState(false);
   const [showConfidenceOverlay, setShowConfidenceOverlay] = useState(false);
   const [pendingGuess, setPendingGuess] = useState(null);
   const [audioStartMs, setAudioStartMs] = useState(0);
   const [activeNotes, setActiveNotes] = useState(LEVEL_NOTES[1]);
   const [consecutiveResults, setConsecutiveResults] = useState([]);
+  // TODO: notExactMode is not yet functional. Intended implementation:
+  //   1. Add a UI toggle (HomeScreen or settings) to enable this mode for detuned trials.
+  //   2. In handleNotePress, when notExactMode is active and stimType === 'detuned',
+  //      store the chosen chroma then present a sharp/flat step, saving both into
+  //      pendingGuess: { chroma, latencyMs, direction }.
+  //   3. The direction buttons in TrialScreen must set pendingGuess.direction rather
+  //      than calling handleNotePress('__sharp__'/'__flat__'), which never matches
+  //      targetChroma and always marks the trial wrong.
+  //   4. Once direction is stored in pendingGuess, the correctness check
+  //      `pendingGuess?.direction === trial.centDirection` in submitGuess will work.
   const [notExactMode, setNotExactMode] = useState(false);
 
   const matrixStore = useRef(new MatrixStore());
@@ -196,7 +203,7 @@ export function useGameState() {
     // Fatigue check
     const newRecent = [...recentResults.slice(-(FATIGUE_WINDOW - 1)), correct ? 1 : 0];
     setRecentResults(newRecent);
-    const newConsec = [...consecutiveResults, correct];
+    const newConsec = [...consecutiveResults, correct].slice(-ADVANCEMENT_TRIALS);
     setConsecutiveResults(newConsec);
 
     const fatigue = newRecent.length >= FATIGUE_WINDOW &&
@@ -251,12 +258,9 @@ export function useGameState() {
       second_instinct_note: secondInstinctNote,
       level,
       session_fatigue_flag: fatigue,
-      cognitive_load_level: cognitiveLoad,
-      intoxication_flag: intoxicationFlag,
       session_type: trial.sessionType,
       drill_mode_flag: trial.sessionType === 'drill',
       drill_notes: trial.sessionType === 'drill' ? drillNotesRef.current : null,
-      contamination_flag: contaminationFlag,
       notes: '',
     };
     await saveTrial(trialLog);
@@ -339,9 +343,6 @@ export function useGameState() {
     notExactMode, setNotExactMode,
     showConfidenceOverlay,
     pendingGuess,
-    cognitiveLoad, setCognitiveLoad,
-    intoxicationFlag, setIntoxicationFlag,
-    contaminationFlag, setContaminationFlag,
     consecutiveResults,
     matrixStore,
     startSession: beginSession,

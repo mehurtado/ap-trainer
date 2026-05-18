@@ -1,6 +1,6 @@
 import {
   CHROMAS, INSTRUMENTS, INSTRUMENT_REGISTERS, LEVEL_NOTES,
-  chromaOctaveToHz, getValidNotes
+  chromaOctaveToHz,
 } from './constants.js';
 import { audioEngine } from './AudioEngine.js';
 
@@ -141,15 +141,3 @@ function weaknessAttack(activeNotes, cm) {
   return best || randChoice(activeNotes);
 }
 
-// ── Active notes for level ─────────────────────────────────────────────────
-
-export function getActiveNotes(level, perNoteAccuracy = null) {
-  if (level <= 3 || !perNoteAccuracy) {
-    return LEVEL_NOTES[level] || CHROMAS;
-  }
-  // Level 4+: dynamic — add semitone neighbor of lowest-accuracy active note
-  const base = [...(LEVEL_NOTES[level] || CHROMAS)];
-  return base;
-}
-
-export const LEVEL_NOTES_EXPORT = LEVEL_NOTES;

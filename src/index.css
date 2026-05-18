@@ -699,3 +699,70 @@ body {
 .ambient-guess   { color: var(--text-bright); font-size: 14px; letter-spacing: 1px; }
 .ambient-verified { color: var(--correct); font-size: 11px; }
 .ambient-mode    { color: var(--text-dim); font-size: 10px; text-transform: uppercase; }
+
+/* ── Second-instinct overlay layout ──────────────────────────────────────── */
+.si-buttons {
+  width: 100%;
+}
+
+.si-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+
+.si-grid .conf-btn {
+  padding: 10px 0;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Per-note accuracy table ──────────────────────────────────────────────── */
+.pn-wrap { margin-top: 4px; }
+
+.pn-wrap h3 {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+
+.pn-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.pn-th {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  font-weight: 400;
+  padding: 0 0 6px 16px;
+  text-align: right;
+}
+.pn-th.pn-left { text-align: left; padding-left: 0; }
+
+.pn-label {
+  color: var(--text-bright);
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 3px 0;
+}
+
+.pn-cell {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding: 3px 0 3px 16px;
+}
+
+.pn-dim { color: var(--text-dim); }
+
+.pn-n {
+  font-size: 9px;
+  color: var(--text-dim);
+}

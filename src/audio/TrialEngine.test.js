@@ -1,23 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { generateTrial, adversarialPick, getActiveNotes } from './TrialEngine.js';
+import { generateTrial, adversarialPick } from './TrialEngine.js';
 import { ConfusionMatrix } from './ConfusionMatrix.js';
-import { CHROMAS, LEVEL_NOTES } from './constants.js';
-
-test('getActiveNotes returns correct notes for levels', () => {
-  // Level 1 should return LEVEL_NOTES[1]
-  assert.deepStrictEqual(getActiveNotes(1), LEVEL_NOTES[1]);
-
-  // Level 4 with null perNoteAccuracy should return LEVEL_NOTES[4]
-  assert.deepStrictEqual(getActiveNotes(4, null), LEVEL_NOTES[4]);
-
-  // Level 4 with perNoteAccuracy should currently return LEVEL_NOTES[4] (based on current implementation)
-  const accuracy = { 'C': 0.5, 'G': 0.8 };
-  assert.deepStrictEqual(getActiveNotes(4, accuracy), LEVEL_NOTES[4]);
-
-  // Level 11 should return CHROMAS
-  assert.deepStrictEqual(getActiveNotes(11), CHROMAS);
-});
+import { CHROMAS } from './constants.js';
 
 test('adversarialPick returns a note from activeNotes', () => {
   const cm = new ConfusionMatrix();

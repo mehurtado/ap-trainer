@@ -91,6 +91,9 @@ export default function TrialScreen({
         disabled={showConfidenceOverlay}
       />
 
+      {/* TODO: direction buttons are non-functional — they fire handleNotePress with
+           '__sharp__'/'__flat__' which never matches targetChroma, always marking wrong.
+           Fix: set pendingGuess.direction here instead. See useGameState.js TODO. */}
       {notExactMode && currentTrial.stimType === 'detuned' && (
         <div className="direction-row">
           <button className="dir-btn" onClick={() => onNotePress('__sharp__')}>Sharp ↑</button>

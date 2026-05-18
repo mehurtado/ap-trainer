@@ -121,10 +121,9 @@ export async function exportCSV() {
     'attention_cue','user_guess','user_guess_direction','confidence',
     'latency_ms','result_bool','timeout_flag',
     'second_instinct_flag','second_instinct_note',
-    'level','session_fatigue_flag',
-    'cognitive_load_level','intoxication_flag','session_type',
+    'level','session_fatigue_flag','session_type',
     'drill_mode_flag','drill_notes',
-    'contamination_flag','notes'
+    'notes'
   ];
 
   const ambientHeaders = [
