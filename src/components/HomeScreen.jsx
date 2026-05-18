@@ -15,6 +15,8 @@ export default function HomeScreen({
   onSetLevel,
   theme,
   onToggleTheme,
+  adaptiveMode,
+  onToggleAdaptive,
 }) {
   const [showDrillPicker, setShowDrillPicker] = useState(false);
   const [pickedNotes, setPickedNotes] = useState([]);
@@ -115,6 +117,16 @@ export default function HomeScreen({
             )}
           </div>
         )}
+      </div>
+
+      <div className="adaptive-row">
+        <button
+          className={`adaptive-btn${adaptiveMode ? ' active' : ''}`}
+          onClick={onToggleAdaptive}
+        >
+          {adaptiveMode ? '◉' : '○'} Adaptive
+        </button>
+        {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
       </div>
 
       <div className="secondary-buttons">

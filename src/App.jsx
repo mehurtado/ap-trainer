@@ -26,6 +26,8 @@ export default function App() {
         onStartDrill={g.startDrill}
         theme={theme}
         onToggleTheme={toggleTheme}
+        adaptiveMode={g.adaptiveMode}
+        onToggleAdaptive={() => g.setAdaptiveMode(!g.adaptiveMode)}
       />
     );
   }

@@ -3,7 +3,8 @@ import { audioEngine } from '../audio/AudioEngine.js';
 import { generateTrial, playTrial } from '../audio/TrialEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
 import { LEVEL_NOTES, CHROMAS, INSTRUMENTS } from '../audio/constants.js';
-import { saveTrial, getMeta, setMeta } from '../db/db.js';
+import { saveTrial, getAllTrials, getMeta, setMeta } from '../db/db.js';
+import { AdaptiveStats } from '../audio/AdaptiveStats.js';
 
 const ADVANCEMENT_TRIALS = 50;
 const ADVANCEMENT_ACCURACY = 0.90;
@@ -41,19 +42,20 @@ export function useGameState() {
   //   4. Once direction is stored in pendingGuess, the correctness check
   //      `pendingGuess?.direction === trial.centDirection` in submitGuess will work.
   const [notExactMode, setNotExactMode] = useState(false);
+  const [adaptiveMode, setAdaptiveModeState] = useState(false);
 
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
   const lastTrialTime = useRef(null);
   const drillNotesRef = useRef(null);
+  const adaptiveStatsRef = useRef(null);
 
   // Load persisted level and streak on mount
   useEffect(() => {
     getMeta('level').then(v => { if (v) setLevel(v); });
     getMeta('streak').then(v => { if (v) setStreak(v); });
-    getMeta('lastTrialTime').then(v => {
-      if (v) lastTrialTime.current = v;
-    });
+    getMeta('lastTrialTime').then(v => { if (v) lastTrialTime.current = v; });
+    getMeta('adaptiveMode').then(v => { if (v != null) setAdaptiveModeState(v); });
   }, []);
 
   useEffect(() => {
@@ -65,6 +67,16 @@ export function useGameState() {
     const last = lastTrialTime.current;
     if (!last) return true;
     return Date.now() - last > COLD_START_GAP_MS;
+  }
+
+  function setAdaptiveMode(v) {
+    setAdaptiveModeState(v);
+    setMeta('adaptiveMode', v);
+  }
+
+  async function buildAdaptiveStats() {
+    const trials = await getAllTrials();
+    adaptiveStatsRef.current = new AdaptiveStats(trials);
   }
 
   // These wrappers must be called synchronously from button click handlers
@@ -92,6 +104,7 @@ export function useGameState() {
     setSessionFatigue(false);
     const cold = checkColdStart();
     setIsColdStart(cold);
+    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
     launchTrial(0, type, cold);
   }
@@ -102,6 +115,7 @@ export function useGameState() {
     setRecentResults([]);
     setSessionFatigue(false);
     setIsColdStart(false);
+    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
     launchTrial(0, 'micro', false);
   }
@@ -114,6 +128,7 @@ export function useGameState() {
     setConsecutiveResults([]);
     setSessionFatigue(false);
     setIsColdStart(false);
+    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
     launchTrial(0, 'drill', false);
   }
@@ -130,6 +145,7 @@ export function useGameState() {
       trialIndexInSession: idx,
       confusionMatrix: matrixStore.current.all,
       sessionType: sessType,
+      adaptiveStats: adaptiveStatsRef.current,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
@@ -341,6 +357,7 @@ export function useGameState() {
     streak,
     activeNotes,
     notExactMode, setNotExactMode,
+    adaptiveMode, setAdaptiveMode,
     showConfidenceOverlay,
     pendingGuess,
     consecutiveResults,

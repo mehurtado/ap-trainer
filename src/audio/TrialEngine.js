@@ -1,5 +1,5 @@
 import {
-  CHROMAS, INSTRUMENTS, INSTRUMENT_REGISTERS, LEVEL_NOTES,
+  CHROMAS, INSTRUMENTS, INSTRUMENT_REGISTERS,
   chromaOctaveToHz,
 } from './constants.js';
 import { audioEngine } from './AudioEngine.js';
@@ -13,17 +13,9 @@ function randChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// Returns a random instrument and valid octave for a given chroma
-function randomInstrumentOctaveForChroma(chroma) {
-  const inst = randChoice(INSTRUMENTS);
-  const reg = INSTRUMENT_REGISTERS[inst];
-  const oct = randInt(reg.min, reg.max);
-  return { instrument: inst, octave: oct };
-}
-
 // Overall mix: 40% sine, 12% detuned, 6% noise, 42% clean instrument.
 // Drill sessions bypass detuned and noise entirely (always clean instrument).
-function pickStimulusType(level, isDrill = false) {
+function pickStimulusType(isDrill = false) {
   if (isDrill) return 'instrument';
   const roll = Math.random();
   if (roll < 0.40) return 'sine';
@@ -32,29 +24,48 @@ function pickStimulusType(level, isDrill = false) {
   return 'instrument';
 }
 
-// Generates the next trial spec given active notes and level
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType }) {
-  // Pick target chroma
+// Generates the next trial spec given active notes and level.
+// When adaptiveStats is provided it drives all selection dimensions;
+// otherwise falls back to adversarial pick at level 12 or uniform random.
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats }) {
+  const isDrill = sessionType === 'drill';
+
+  // ── Chroma ────────────────────────────────────────────────────────────────
   let targetChroma;
-  if (level === 12 && confusionMatrix) {
+  if (adaptiveStats) {
+    targetChroma = adaptiveStats.pickNote(activeNotes);
+  } else if (level === 12 && confusionMatrix) {
     targetChroma = adversarialPick(activeNotes, confusionMatrix, trialIndexInSession);
   } else {
     targetChroma = randChoice(activeNotes);
   }
 
-  // Pick instrument and octave — uniform across register
-  const inst = instrumentId || randChoice(INSTRUMENTS);
+  // ── Instrument & octave ───────────────────────────────────────────────────
+  const inst = adaptiveStats
+    ? adaptiveStats.pickInstrument(targetChroma)
+    : (instrumentId || randChoice(INSTRUMENTS));
   const reg = INSTRUMENT_REGISTERS[inst];
-  const octave = randInt(reg.min, reg.max);
+  const octave = adaptiveStats
+    ? adaptiveStats.pickOctave(targetChroma, reg)
+    : randInt(reg.min, reg.max);
 
-  const isDrill = sessionType === 'drill';
-  const stimType = pickStimulusType(level, isDrill);
+  // ── Stimulus type ─────────────────────────────────────────────────────────
+  const stimType = adaptiveStats
+    ? adaptiveStats.pickStimType(targetChroma, isDrill)
+    : pickStimulusType(isDrill);
+
+  // ── Detuned params ────────────────────────────────────────────────────────
   let centOffset = 0;
   let centDirection = 'none';
-
   if (stimType === 'detuned') {
-    centOffset = randInt(10, 25) * (Math.random() < 0.5 ? 1 : -1);
-    centDirection = centOffset > 0 ? 'sharp' : 'flat';
+    const magnitude = randInt(10, 25);
+    if (adaptiveStats) {
+      centDirection = adaptiveStats.pickDetunedDirection(targetChroma);
+      centOffset = centDirection === 'sharp' ? magnitude : -magnitude;
+    } else {
+      centOffset = magnitude * (Math.random() < 0.5 ? 1 : -1);
+      centDirection = centOffset > 0 ? 'sharp' : 'flat';
+    }
   }
 
   const noiseType = Math.random() < 0.5 ? 'white' : 'pink';
