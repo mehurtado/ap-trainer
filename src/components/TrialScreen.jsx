@@ -52,6 +52,26 @@ export default function TrialScreen({
     }
   }, [showConfidenceOverlay, secondInstinctPrompt]);
 
+  // Keyboard shortcuts for notes
+  useEffect(() => {
+    if (!currentTrial || showConfidenceOverlay || secondInstinctPrompt) return;
+
+    function handleKeyDown(e) {
+      const key = e.key.toLowerCase();
+      const map = {
+        'a': 'C', 'w': 'C#', 's': 'D', 'e': 'D#', 'd': 'E', 'f': 'F',
+        't': 'F#', 'g': 'G', 'y': 'G#', 'h': 'A', 'u': 'A#', 'j': 'B'
+      };
+      const note = map[key];
+      if (note && activeNotes.includes(note)) {
+        onNotePress(note);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentTrial, activeNotes, onNotePress, showConfidenceOverlay, secondInstinctPrompt]);
+
   if (!currentTrial) return null;
 
   return (

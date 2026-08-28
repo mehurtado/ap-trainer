@@ -1,3 +1,5 @@
 ## 2024-05-18 - Missing Focus Styles and Icon Button ARIA Labels
 **Learning:** Found that this application relied heavily on hover states but neglected clear focus indicators (`:focus-visible`) for keyboard users. Additionally, several icon-only buttons (like the theme toggler and level adjusters) were missing `aria-label`s, rendering them inaccessible to screen readers despite having `title` attributes (which are insufficient for a11y on their own).
-**Action:** Always ensure a global `:focus-visible` outline is present in the base CSS and actively audit icon-only buttons for explicit `aria-label`s during initial accessibility checks.
+**Action:** Always ensure a global `:focus-visible` outline is present in the base CSS and actively audit icon-only buttons for explicit `aria-label`s during initial accessibility checks.2023-10-27
+Learning: When building UI elements that pop up (like the confidence overlay), placing them centrally on the screen instead of fixed to the bottom edge significantly reduces travel distance for touchscreen users and mouse users alike, speeding up interactions.
+Action: Position overlays in the center using absolute/fixed positioning and transforms, or relative to the interaction area, rather than pinning to screen edges unless necessary.
