@@ -183,7 +183,7 @@ function AccCell({ stat }) {
 }
 
 function PerNoteStats({ trials }) {
-  const stats  = buildPerNoteStats(trials);
+  const stats  = useMemo(() => buildPerNoteStats(trials), [trials]);
   const active = CHROMAS.filter(c => stats[c].overall.total > 0);
   if (active.length === 0) return null;
 
