@@ -102,8 +102,10 @@ export async function clearHistory() {
   });
 }
 
+const CSV_INJECTION_REGEX = /^[=+\-@\t\r]/;
+
 export function sanitizeForCSV(value) {
-  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(value)) {
+  if (typeof value === 'string' && CSV_INJECTION_REGEX.test(value)) {
     return "'" + value;
   }
   return value;
