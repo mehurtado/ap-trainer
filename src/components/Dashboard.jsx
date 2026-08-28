@@ -119,11 +119,12 @@ function AccuracyChart({ trials }) {
   const coldByDay    = bucketByDay(coldTrials);
   const eveningByDay = bucketByDay(eveningTrials);
   const drillByDay   = bucketByDay(drillTrials);
-  const allDays = [...new Set([
-    ...coldByDay.map(d => d.day),
-    ...eveningByDay.map(d => d.day),
-    ...drillByDay.map(d => d.day),
-  ])].sort();
+
+  const uniqueDays = new Set();
+  for (const d of coldByDay) uniqueDays.add(d.day);
+  for (const d of eveningByDay) uniqueDays.add(d.day);
+  for (const d of drillByDay) uniqueDays.add(d.day);
+  const allDays = Array.from(uniqueDays).sort();
 
   if (allDays.length === 0) return <div className="chart-empty">No data yet</div>;
 
