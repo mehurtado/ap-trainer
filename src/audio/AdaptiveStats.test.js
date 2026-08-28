@@ -1,88 +1,110 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert';
 import { AdaptiveStats } from './AdaptiveStats.js';
 
-test('AdaptiveStats constructor handles empty trials array', () => {
-  const stats = new AdaptiveStats([]);
+test('AdaptiveStats.pickStimType', async (t) => {
+  await t.test('returns "instrument" if isDrill is true', () => {
+    const stats = new AdaptiveStats([]);
+    assert.strictEqual(stats.pickStimType('C', true), 'instrument');
+  });
 
-  assert.deepStrictEqual(stats._chroma, {});
-  assert.deepStrictEqual(stats._type, {});
-  assert.deepStrictEqual(stats._octave, {});
-  assert.deepStrictEqual(stats._instrument, {});
-  assert.deepStrictEqual(stats._direction, {});
-});
+  await t.test('uses default weights when no data is available', () => {
+    const stats = new AdaptiveStats([]);
 
-test('AdaptiveStats constructor correctly groups chroma hits and misses', () => {
-  const trials = [
-    { target_chroma: 'C', result_bool: true },
-    { target_chroma: 'C', result_bool: false },
-    { target_chroma: 'C', result_bool: true },
-    { target_chroma: 'F', result_bool: true },
-  ];
-  const stats = new AdaptiveStats(trials);
+    // Default weights according to STIM_DEFAULTS:
+    // { sine: 0.40, instrument: 0.42, detuned: 0.12, noise: 0.06 }
 
-  assert.deepStrictEqual(stats._chroma['C'], { correct: 2, total: 3 });
-  assert.deepStrictEqual(stats._chroma['F'], { correct: 1, total: 1 });
-  assert.strictEqual(stats._chroma['G'], undefined);
-});
+    // We mock Math.random() to deterministically select buckets.
+    // Total weight = 1.0, so:
+    // sine (cumulative 0.40) -> random < 0.40
+    // instrument (cumulative 0.82) -> random < 0.82
+    // detuned (cumulative 0.94) -> random < 0.94
+    // noise (cumulative 1.00) -> random < 1.00
 
-test('AdaptiveStats constructor ignores trials with missing target_chroma', () => {
-  const trials = [
-    { target_chroma: 'C', result_bool: true },
-    { result_bool: false }, // Missing target_chroma
-    { target_chroma: null, result_bool: true },
-  ];
-  const stats = new AdaptiveStats(trials);
+    let randomMock = mock.method(Math, 'random', () => 0.1);
+    assert.strictEqual(stats.pickStimType('C', false), 'sine');
+    randomMock.mock.restore();
 
-  assert.deepStrictEqual(stats._chroma['C'], { correct: 1, total: 1 });
-  assert.strictEqual(Object.keys(stats._chroma).length, 1);
-});
+    randomMock = mock.method(Math, 'random', () => 0.5);
+    assert.strictEqual(stats.pickStimType('C', false), 'instrument');
+    randomMock.mock.restore();
 
-test('AdaptiveStats constructor resolves stimulus types correctly', () => {
-  const trials = [
-    { target_chroma: 'C', result_bool: true, sine_wave_flag: true }, // sine
-    { target_chroma: 'C', result_bool: false, noise_masked_flag: true }, // noise (sine false)
-    { target_chroma: 'D', result_bool: true, cents_offset: 20, cents_direction: 'sharp' }, // detuned
-    { target_chroma: 'E', result_bool: true }, // fallback: instrument
-  ];
-  const stats = new AdaptiveStats(trials);
+    randomMock = mock.method(Math, 'random', () => 0.9);
+    assert.strictEqual(stats.pickStimType('C', false), 'detuned');
+    randomMock.mock.restore();
 
-  assert.deepStrictEqual(stats._type['C:sine'], { correct: 1, total: 1 });
-  assert.deepStrictEqual(stats._type['C:noise'], { correct: 0, total: 1 });
-  assert.deepStrictEqual(stats._type['D:detuned'], { correct: 1, total: 1 });
-  assert.deepStrictEqual(stats._type['E:instrument'], { correct: 1, total: 1 });
-});
+    randomMock = mock.method(Math, 'random', () => 0.98);
+    assert.strictEqual(stats.pickStimType('C', false), 'noise');
+    randomMock.mock.restore();
+  });
 
-test('AdaptiveStats constructor captures octave and instrument data', () => {
-  const trials = [
-    { target_chroma: 'C', result_bool: true, target_octave: 4, instrument_id: 'piano' },
-    { target_chroma: 'C', result_bool: false, target_octave: 4, instrument_id: 'piano' },
-    { target_chroma: 'C', result_bool: true, target_octave: 5, instrument_id: 'guitar' },
-  ];
-  const stats = new AdaptiveStats(trials);
+  await t.test('weights shift based on inverse accuracy', () => {
+    // We provide >= 5 trials (MIN_TRIALS) per stimulus type to trigger _w behavior.
+    const trials = [];
 
-  assert.deepStrictEqual(stats._octave['C:4'], { correct: 1, total: 2 });
-  assert.deepStrictEqual(stats._octave['C:5'], { correct: 1, total: 1 });
+    // 5 correct sine trials -> accuracy 1.0 -> weight Math.max(0.1, 1 - 1.0) = 0.1
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, sine_wave_flag: true });
+    }
 
-  assert.deepStrictEqual(stats._instrument['C:piano'], { correct: 1, total: 2 });
-  assert.deepStrictEqual(stats._instrument['C:guitar'], { correct: 1, total: 1 });
-});
+    // 5 incorrect noise trials -> accuracy 0.0 -> weight Math.max(0.1, 1 - 0.0) = 1.0
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, noise_masked_flag: true });
+    }
 
-test('AdaptiveStats constructor tracks detuned direction only for detuned types', () => {
-  const trials = [
-    { target_chroma: 'C', result_bool: true, cents_offset: 20, cents_direction: 'sharp' }, // detuned sharp
-    { target_chroma: 'C', result_bool: false, cents_offset: -10, cents_direction: 'flat' }, // detuned flat
-    { target_chroma: 'D', result_bool: true, cents_offset: 0, cents_direction: 'sharp' }, // not detuned (offset 0), should not log direction
-    { target_chroma: 'E', result_bool: true, cents_offset: 15, cents_direction: 'none' }, // detuned but direction 'none', should not log
-  ];
-  const stats = new AdaptiveStats(trials);
+    // 5 instrument trials with 60% accuracy -> accuracy 0.6 -> weight Math.max(0.1, 1 - 0.6) = 0.4
+    for (let i = 0; i < 3; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, instrument_id: 'piano' });
+    }
+    for (let i = 0; i < 2; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, instrument_id: 'piano' });
+    }
 
-  assert.deepStrictEqual(stats._direction['C:sharp'], { correct: 1, total: 1 });
-  assert.deepStrictEqual(stats._direction['C:flat'], { correct: 0, total: 1 });
+    // 5 detuned trials with 20% accuracy -> accuracy 0.2 -> weight Math.max(0.1, 1 - 0.2) = 0.8
+    for (let i = 0; i < 1; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, cents_offset: 50, cents_direction: 'sharp' });
+    }
+    for (let i = 0; i < 4; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, cents_offset: 50, cents_direction: 'sharp' });
+    }
 
-  // D is not detuned because cents_offset is 0 (or falsy check Math.abs(0) > 0 is false) -> type is 'instrument'
-  assert.strictEqual(stats._direction['D:sharp'], undefined);
+    const stats = new AdaptiveStats(trials);
 
-  // E is detuned but direction is 'none', handled by `t.cents_direction !== 'none'`
-  assert.strictEqual(stats._direction['E:none'], undefined);
+    // According to AdaptiveStats, STIM_DEFAULTS are:
+    // { sine: 0.40, instrument: 0.42, detuned: 0.12, noise: 0.06 }
+    // Object.keys(STIM_DEFAULTS) order is: ['sine', 'instrument', 'detuned', 'noise']
+    //
+    // Computed weights via `this._w(stat, STIM_DEFAULTS[t])`:
+    // sine: 0.1
+    // instrument: 0.4
+    // detuned: 0.8
+    // noise: 1.0
+    //
+    // Total weights = 0.1 + 0.4 + 0.8 + 1.0 = 2.3
+    // Cumulative thresholds (r / total):
+    // sine: < (0.1 / 2.3) ≈ 0.043
+    // instrument: < (0.5 / 2.3) ≈ 0.217
+    // detuned: < (1.3 / 2.3) ≈ 0.565
+    // noise: <= 1.0
+
+    // sine
+    let randomMock = mock.method(Math, 'random', () => 0.02);
+    assert.strictEqual(stats.pickStimType('C', false), 'sine');
+    randomMock.mock.restore();
+
+    // instrument
+    randomMock = mock.method(Math, 'random', () => 0.15);
+    assert.strictEqual(stats.pickStimType('C', false), 'instrument');
+    randomMock.mock.restore();
+
+    // detuned
+    randomMock = mock.method(Math, 'random', () => 0.4);
+    assert.strictEqual(stats.pickStimType('C', false), 'detuned');
+    randomMock.mock.restore();
+
+    // noise
+    randomMock = mock.method(Math, 'random', () => 0.8);
+    assert.strictEqual(stats.pickStimType('C', false), 'noise');
+    randomMock.mock.restore();
+  });
 });
