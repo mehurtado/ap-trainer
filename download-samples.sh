@@ -1,6 +1,6 @@
 #!/bin/bash
 BASE="https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples"
-OUT="C:/Users/mehur/ap-trainer/public/samples"
+OUT="./public/samples"
 
 echo "Downloading instrument samples..."
 

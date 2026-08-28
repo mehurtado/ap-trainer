@@ -1,64 +1,110 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert';
 import { AdaptiveStats } from './AdaptiveStats.js';
 
-test('pickNote respects weights and falls back properly', () => {
-  const stats = new AdaptiveStats([]);
+test('AdaptiveStats.pickStimType', async (t) => {
+  await t.test('returns "instrument" if isDrill is true', () => {
+    const stats = new AdaptiveStats([]);
+    assert.strictEqual(stats.pickStimType('C', true), 'instrument');
+  });
 
-  // Mock internal state
-  // MIN_TRIALS is 5.
-  // C: 0% accuracy (0/5) -> weight: base 1.0. seen=5, maxSeen=10 -> base + (1 - 5/10) * 0.05 = 1.0 + 0.025 = 1.025
-  // E: 100% accuracy (10/10) -> weight: base max(0.1, 0) = 0.1. seen=10, maxSeen=10 -> 0.1 + (1 - 1) * 0.05 = 0.1
-  // G: Unseen (0/0) -> weight: base 0.5. seen=0, maxSeen=10 -> 0.5 + (1 - 0/10) * 0.05 = 0.55
-  stats._chroma = {
-    'C': { correct: 0, total: 5 },
-    'E': { correct: 10, total: 10 },
-  };
+  await t.test('uses default weights when no data is available', () => {
+    const stats = new AdaptiveStats([]);
 
-  const activeNotes = ['C', 'E', 'G'];
-  // Weights should be:
-  // C: 1.025
-  // E: 0.1
-  // G: 0.55
-  // Total = 1.675
+    // Default weights according to STIM_DEFAULTS:
+    // { sine: 0.40, instrument: 0.42, detuned: 0.12, noise: 0.06 }
 
-  const originalRandom = Math.random;
-  try {
-    // If Math.random() is close to 0, it picks C
-    Math.random = () => 0.01;
-    assert.strictEqual(stats.pickNote(activeNotes), 'C');
+    // We mock Math.random() to deterministically select buckets.
+    // Total weight = 1.0, so:
+    // sine (cumulative 0.40) -> random < 0.40
+    // instrument (cumulative 0.82) -> random < 0.82
+    // detuned (cumulative 0.94) -> random < 0.94
+    // noise (cumulative 1.00) -> random < 1.00
 
-    // C boundary is 1.025 / 1.675 = 0.6119
-    Math.random = () => 0.61; // 0.61 * 1.675 = 1.02175 < 1.025 -> C
-    assert.strictEqual(stats.pickNote(activeNotes), 'C');
+    let randomMock = mock.method(Math, 'random', () => 0.1);
+    assert.strictEqual(stats.pickStimType('C', false), 'sine');
+    randomMock.mock.restore();
 
-    // E boundary is (1.025 + 0.1) / 1.675 = 1.125 / 1.675 = 0.6716
-    Math.random = () => 0.62; // 0.62 * 1.675 = 1.0385 > 1.025 (C), so next is E. 1.0385 - 1.025 = 0.0135 < 0.1 -> E
-    assert.strictEqual(stats.pickNote(activeNotes), 'E');
+    randomMock = mock.method(Math, 'random', () => 0.5);
+    assert.strictEqual(stats.pickStimType('C', false), 'instrument');
+    randomMock.mock.restore();
 
-    // G is anything above E
-    Math.random = () => 0.99;
-    assert.strictEqual(stats.pickNote(activeNotes), 'G');
-  } finally {
-    Math.random = originalRandom;
-  }
-});
+    randomMock = mock.method(Math, 'random', () => 0.9);
+    assert.strictEqual(stats.pickStimType('C', false), 'detuned');
+    randomMock.mock.restore();
 
-test('pickNote handles empty activeNotes', () => {
-  const stats = new AdaptiveStats([]);
-  assert.strictEqual(stats.pickNote([]), undefined);
-});
+    randomMock = mock.method(Math, 'random', () => 0.98);
+    assert.strictEqual(stats.pickStimType('C', false), 'noise');
+    randomMock.mock.restore();
+  });
 
-test('pickNote handles uninitialized weights', () => {
-  const stats = new AdaptiveStats([]);
-  const activeNotes = ['C', 'E', 'G'];
-  const originalRandom = Math.random;
-  try {
-    Math.random = () => 0;
-    assert.strictEqual(stats.pickNote(activeNotes), 'C');
-    Math.random = () => 0.99;
-    assert.strictEqual(stats.pickNote(activeNotes), 'G');
-  } finally {
-    Math.random = originalRandom;
-  }
+  await t.test('weights shift based on inverse accuracy', () => {
+    // We provide >= 5 trials (MIN_TRIALS) per stimulus type to trigger _w behavior.
+    const trials = [];
+
+    // 5 correct sine trials -> accuracy 1.0 -> weight Math.max(0.1, 1 - 1.0) = 0.1
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, sine_wave_flag: true });
+    }
+
+    // 5 incorrect noise trials -> accuracy 0.0 -> weight Math.max(0.1, 1 - 0.0) = 1.0
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, noise_masked_flag: true });
+    }
+
+    // 5 instrument trials with 60% accuracy -> accuracy 0.6 -> weight Math.max(0.1, 1 - 0.6) = 0.4
+    for (let i = 0; i < 3; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, instrument_id: 'piano' });
+    }
+    for (let i = 0; i < 2; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, instrument_id: 'piano' });
+    }
+
+    // 5 detuned trials with 20% accuracy -> accuracy 0.2 -> weight Math.max(0.1, 1 - 0.2) = 0.8
+    for (let i = 0; i < 1; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, cents_offset: 50, cents_direction: 'sharp' });
+    }
+    for (let i = 0; i < 4; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, cents_offset: 50, cents_direction: 'sharp' });
+    }
+
+    const stats = new AdaptiveStats(trials);
+
+    // According to AdaptiveStats, STIM_DEFAULTS are:
+    // { sine: 0.40, instrument: 0.42, detuned: 0.12, noise: 0.06 }
+    // Object.keys(STIM_DEFAULTS) order is: ['sine', 'instrument', 'detuned', 'noise']
+    //
+    // Computed weights via `this._w(stat, STIM_DEFAULTS[t])`:
+    // sine: 0.1
+    // instrument: 0.4
+    // detuned: 0.8
+    // noise: 1.0
+    //
+    // Total weights = 0.1 + 0.4 + 0.8 + 1.0 = 2.3
+    // Cumulative thresholds (r / total):
+    // sine: < (0.1 / 2.3) ≈ 0.043
+    // instrument: < (0.5 / 2.3) ≈ 0.217
+    // detuned: < (1.3 / 2.3) ≈ 0.565
+    // noise: <= 1.0
+
+    // sine
+    let randomMock = mock.method(Math, 'random', () => 0.02);
+    assert.strictEqual(stats.pickStimType('C', false), 'sine');
+    randomMock.mock.restore();
+
+    // instrument
+    randomMock = mock.method(Math, 'random', () => 0.15);
+    assert.strictEqual(stats.pickStimType('C', false), 'instrument');
+    randomMock.mock.restore();
+
+    // detuned
+    randomMock = mock.method(Math, 'random', () => 0.4);
+    assert.strictEqual(stats.pickStimType('C', false), 'detuned');
+    randomMock.mock.restore();
+
+    // noise
+    randomMock = mock.method(Math, 'random', () => 0.8);
+    assert.strictEqual(stats.pickStimType('C', false), 'noise');
+    randomMock.mock.restore();
+  });
 });

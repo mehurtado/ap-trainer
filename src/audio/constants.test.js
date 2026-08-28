@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { chromaOctaveToMidi } from './constants.js';
+import { chromaOctaveToMidi, getValidNotes } from './constants.js';
 
 test('chromaOctaveToMidi translates chroma and octave to correct MIDI notes', () => {
   // Middle C
@@ -21,4 +21,21 @@ test('chromaOctaveToMidi translates chroma and octave to correct MIDI notes', ()
   // Sharp notes
   assert.strictEqual(chromaOctaveToMidi('C#', 4), 61);
   assert.strictEqual(chromaOctaveToMidi('A#', 0), 22);
+});
+
+test('getValidNotes returns correct notes for instruments', () => {
+  // Piano (min: 2, max: 7) - 6 octaves, 12 notes per octave = 72 notes
+  const pianoNotes = getValidNotes('piano');
+  assert.strictEqual(pianoNotes.length, 72);
+  assert.deepStrictEqual(pianoNotes[0], { chroma: 'C', octave: 2 });
+  assert.deepStrictEqual(pianoNotes[71], { chroma: 'B', octave: 7 });
+
+  // Bass (min: 1, max: 4) - 4 octaves, 12 notes per octave = 48 notes
+  const bassNotes = getValidNotes('bass');
+  assert.strictEqual(bassNotes.length, 48);
+  assert.deepStrictEqual(bassNotes[0], { chroma: 'C', octave: 1 });
+  assert.deepStrictEqual(bassNotes[47], { chroma: 'B', octave: 4 });
+
+  // Invalid instrument
+  assert.throws(() => getValidNotes('invalid_instrument'), TypeError);
 });
