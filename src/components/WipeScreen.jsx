@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+
 
 export default function WipeScreen({ progress, onQuit }) {
   return (

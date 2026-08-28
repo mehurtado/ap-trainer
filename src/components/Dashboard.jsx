@@ -313,24 +313,34 @@ export default function Dashboard({ onBack }) {
         </div>
       )}
 
-      <div className="stat-row">
-        <div className="stat"><span className="stat-value">{totalTrials}</span><span className="stat-label">trials</span></div>
-        <div className="stat"><span className="stat-value">{overallAcc}%</span><span className="stat-label">overall</span></div>
-        <div className="stat"><span className="stat-value">{sineAcc}%</span><span className="stat-label">sine</span></div>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <span className="stat-value">{totalTrials}</span>
+          <span className="stat-label">trials</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{overallAcc}%</span>
+          <span className="stat-label">overall</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{sineAcc}%</span>
+          <span className="stat-label">sine</span>
+        </div>
         {siAcc !== '--' && (
-          <div className="stat" data-tip="How often your gut instinct (named after a wrong + unsure answer) was the correct note">
-            <span className="stat-value">{siAcc}%</span><span className="stat-label">SI accuracy</span>
+          <div className="stat-card" data-tip="How often your gut instinct was correct">
+            <span className="stat-value">{siAcc}%</span>
+            <span className="stat-label">SI accuracy</span>
           </div>
         )}
-      </div>
-
-      <div className="stat-row">
-        <div className="stat"><span className="stat-value">{timeoutFreq}%</span><span className="stat-label">timeouts</span></div>
-        <div className="stat">
+        <div className="stat-card">
+          <span className="stat-value">{timeoutFreq}%</span>
+          <span className="stat-label">timeouts</span>
+        </div>
+        <div className="stat-card">
           <span className="stat-value">{avgRt}{avgRt !== '--' ? 'ms' : ''}</span>
           <span className="stat-label">avg RT (all)</span>
         </div>
-        <div className="stat">
+        <div className="stat-card">
           <span className="stat-value">{avgRtCorrect}{avgRtCorrect !== '--' ? 'ms' : ''}</span>
           <span className="stat-label">avg RT (correct)</span>
         </div>
