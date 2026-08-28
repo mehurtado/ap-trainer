@@ -2,48 +2,67 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { ConfusionMatrix } from './ConfusionMatrix.js';
 
-test('ConfusionMatrix.mostConfusedWith', async (t) => {
-  await t.test('returns null if the provided note does not exist in the matrix', () => {
-    const cm = new ConfusionMatrix();
-    const result = cm.mostConfusedWith('INVALID_NOTE', ['C', 'D']);
-    assert.strictEqual(result, null);
-  });
+test('ConfusionMatrix.weightedFailureRate returns 0 for unknown note', () => {
+  const cm = new ConfusionMatrix();
+  assert.strictEqual(cm.weightedFailureRate('Unknown'), 0);
+});
 
-  await t.test('returns a valid candidate when confusion counts are zero', () => {
-    const cm = new ConfusionMatrix();
-    const result = cm.mostConfusedWith('C', ['C', 'D', 'E']);
-    // Since count for all is 0 and bestCount starts at -1, it should pick the first valid one which is 'D'
-    assert.strictEqual(result, 'D');
-  });
+test('ConfusionMatrix.weightedFailureRate returns 0 for note with no attempts', () => {
+  const cm = new ConfusionMatrix();
+  assert.strictEqual(cm.weightedFailureRate('C'), 0);
+});
 
-  await t.test('returns the candidate with the highest confusion count present in activeNotes', () => {
-    const cm = new ConfusionMatrix();
-    cm.record('C', 'C#', false, true, false); // count = 1
-    cm.record('C', 'D', false, true, false);
-    cm.record('C', 'D', false, true, false); // count = 2
+test('ConfusionMatrix.weightedFailureRate returns 0 for note with only correct attempts', () => {
+  const cm = new ConfusionMatrix();
+  // Simulate correct answer: record(target, response, correct, confident, isSine)
+  cm.record('C', 'C', true, true, false);
+  cm.record('C', 'C', true, false, false);
 
-    const result = cm.mostConfusedWith('C', ['C', 'C#', 'D', 'E']);
-    assert.strictEqual(result, 'D');
-  });
+  assert.strictEqual(cm.weightedFailureRate('C'), 0);
+});
 
-  await t.test('ignores highly confused notes if they are not in the activeNotes array', () => {
-    const cm = new ConfusionMatrix();
-    cm.record('C', 'D', false, true, false);
-    cm.record('C', 'D', false, true, false); // count = 2
-    cm.record('C', 'E', false, true, false); // count = 1
+test('ConfusionMatrix.weightedFailureRate calculation with only unconfident wrong attempts', () => {
+  const cm = new ConfusionMatrix();
+  // Simulate 2 unconfident wrong answers
+  cm.record('C', 'C#', false, false, false);
+  cm.record('C', 'D', false, false, false);
 
-    // 'D' is the most confused but not in activeNotes
-    const result = cm.mostConfusedWith('C', ['C', 'E', 'F']);
-    assert.strictEqual(result, 'E');
-  });
+  // failureCounts['C'] = { total: 2, confidentWrong: 0, correct: 0 }
+  // total = 2 + 0 = 2
+  // weighted = 0 * 3 + (2 - 0) = 2
+  // expected = 2 / 2 = 1
+  assert.strictEqual(cm.weightedFailureRate('C'), 1);
+});
 
-  await t.test('ignores self (where candidate === note)', () => {
-    const cm = new ConfusionMatrix();
-    // Simulate count for 'C' itself
-    cm.matrix['C']['C'] = 10;
-    cm.matrix['C']['D'] = 2;
+test('ConfusionMatrix.weightedFailureRate calculation with only confident wrong attempts', () => {
+  const cm = new ConfusionMatrix();
+  // Simulate 2 confident wrong answers
+  cm.record('C', 'C#', false, true, false);
+  cm.record('C', 'D', false, true, false);
 
-    const result = cm.mostConfusedWith('C', ['C', 'D']);
-    assert.strictEqual(result, 'D'); // Should pick D and ignore C
-  });
+  // failureCounts['C'] = { total: 2, confidentWrong: 2, correct: 0 }
+  // total = 2 + 0 = 2
+  // weighted = 2 * 3 + (2 - 2) = 6
+  // expected = 6 / 2 = 3
+  assert.strictEqual(cm.weightedFailureRate('C'), 3);
+});
+
+test('ConfusionMatrix.weightedFailureRate calculation with mixed attempts', () => {
+  const cm = new ConfusionMatrix();
+  // 1 correct attempt
+  cm.record('C', 'C', true, true, false);
+
+  // 2 unconfident wrong attempts
+  cm.record('C', 'C#', false, false, false);
+  cm.record('C', 'D', false, false, false);
+
+  // 1 confident wrong attempt
+  cm.record('C', 'D#', false, true, false);
+
+  // failureCounts['C'] = { total: 3, confidentWrong: 1, correct: 1 }
+  // total attempts = 3 (wrong) + 1 (correct) = 4
+  // unconfidentWrong = 3 - 1 = 2
+  // weighted = (confidentWrong * 3) + unconfidentWrong = (1 * 3) + 2 = 5
+  // expected = 5 / 4 = 1.25
+  assert.strictEqual(cm.weightedFailureRate('C'), 1.25);
 });
