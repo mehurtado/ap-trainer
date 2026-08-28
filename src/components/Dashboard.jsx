@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getAllTrials, exportCSV, clearHistory } from '../db/db.js';
 import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
@@ -236,7 +236,7 @@ export default function Dashboard({ onBack }) {
     getAllTrials().then(setTrials);
   }, []);
 
-  const grid = buildConfusionGrid(trials, matrixFilter);
+  const grid = useMemo(() => buildConfusionGrid(trials, matrixFilter), [trials, matrixFilter]);
 
   async function doExport() {
     setExporting(true);
