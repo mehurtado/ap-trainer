@@ -79,19 +79,27 @@ class AudioEngine {
 
   _makeWhiteNoiseBuffer(durationSec) {
     const key = `white-${durationSec}`;
-    if (this.noiseCache[key]) return this.noiseCache[key];
+    if (!this.noiseCache[key]) this.noiseCache[key] = [];
+    const pool = this.noiseCache[key];
+    if (pool.length >= 5) {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
     const sampleRate = this.ctx.sampleRate;
     const frameCount = Math.ceil(sampleRate * durationSec);
     const buf = this.ctx.createBuffer(1, frameCount, sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < frameCount; i++) data[i] = Math.random() * 2 - 1;
-    this.noiseCache[key] = buf;
+    pool.push(buf);
     return buf;
   }
 
   _makePinkNoiseBuffer(durationSec) {
     const key = `pink-${durationSec}`;
-    if (this.noiseCache[key]) return this.noiseCache[key];
+    if (!this.noiseCache[key]) this.noiseCache[key] = [];
+    const pool = this.noiseCache[key];
+    if (pool.length >= 5) {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
     const sampleRate = this.ctx.sampleRate;
     const frameCount = Math.ceil(sampleRate * durationSec);
     const buf = this.ctx.createBuffer(1, frameCount, sampleRate);
@@ -108,13 +116,17 @@ class AudioEngine {
       data[i] = (b0+b1+b2+b3+b4+b5+b6 + white*0.5362) * 0.11;
       b6 = white * 0.115926;
     }
-    this.noiseCache[key] = buf;
+    pool.push(buf);
     return buf;
   }
 
   _makeBrownNoiseBuffer(durationSec) {
     const key = `brown-${durationSec}`;
-    if (this.noiseCache[key]) return this.noiseCache[key];
+    if (!this.noiseCache[key]) this.noiseCache[key] = [];
+    const pool = this.noiseCache[key];
+    if (pool.length >= 5) {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
     const sampleRate = this.ctx.sampleRate;
     const frameCount = Math.ceil(sampleRate * durationSec);
     const buf = this.ctx.createBuffer(1, frameCount, sampleRate);
@@ -125,7 +137,7 @@ class AudioEngine {
       last = (last + 0.02 * white) / 1.02;
       data[i] = last * 3.5;
     }
-    this.noiseCache[key] = buf;
+    pool.push(buf);
     return buf;
   }
 
