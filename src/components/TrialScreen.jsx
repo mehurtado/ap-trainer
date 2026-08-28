@@ -63,7 +63,7 @@ export default function TrialScreen({
           <span className="session-record">{sessionCorrect}/{sessionTotal}</span>
         )}
         {currentTrial.isColdStart && <span className="tag cold">cold start</span>}
-        <button className="quit-btn" onClick={onQuit}>✕</button>
+        <button className="quit-btn" aria-label="Quit trial" onClick={onQuit}>✕</button>
       </div>
 
       {/* Stimulus type indicator — no pitch info, just timbral context */}
