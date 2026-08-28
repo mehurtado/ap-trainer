@@ -5,7 +5,7 @@ const MIN_TRIALS = 5;
 // Default stimulus type probabilities — mirrors pickStimulusType in TrialEngine
 const STIM_DEFAULTS = { sine: 0.40, instrument: 0.42, detuned: 0.12, noise: 0.06 };
 
-function weightedRandom(items, weights) {
+export function weightedRandom(items, weights) {
   const total = weights.reduce((a, b) => a + b, 0);
   if (total === 0) return items[Math.floor(Math.random() * items.length)];
   let r = Math.random() * total;
