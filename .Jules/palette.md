@@ -1,0 +1,3 @@
+## 2024-05-18 - Missing Focus Styles and Icon Button ARIA Labels
+**Learning:** Found that this application relied heavily on hover states but neglected clear focus indicators (`:focus-visible`) for keyboard users. Additionally, several icon-only buttons (like the theme toggler and level adjusters) were missing `aria-label`s, rendering them inaccessible to screen readers despite having `title` attributes (which are insufficient for a11y on their own).
+**Action:** Always ensure a global `:focus-visible` outline is present in the base CSS and actively audit icon-only buttons for explicit `aria-label`s during initial accessibility checks.

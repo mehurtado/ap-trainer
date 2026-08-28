@@ -30,6 +30,12 @@
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--text-bright);
+  outline-offset: 2px;
+  border-radius: 2px; /* fallback if no border-radius is set */
+}
+
 body {
   margin: 0;
   min-height: 100vh;

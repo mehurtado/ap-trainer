@@ -52,7 +52,7 @@ export default function HomeScreen({
     <div className="screen home-screen">
       <div className="home-header">
         <h1 className="app-title">AP Trainer</h1>
-        <button className="theme-btn" onClick={onToggleTheme} title="Toggle theme">
+        <button className="theme-btn" aria-label="Toggle theme" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? '○' : '●'}
         </button>
       </div>
@@ -60,9 +60,9 @@ export default function HomeScreen({
       <div className="stat-row">
         <div className="stat">
           <div className="level-selector">
-            <button className="level-arrow" onClick={() => onSetLevel(Math.max(1, level - 1))} disabled={level <= 1}>‹</button>
+            <button className="level-arrow" aria-label="Decrease level" onClick={() => onSetLevel(Math.max(1, level - 1))} disabled={level <= 1}>‹</button>
             <span className="stat-value">Lv {level}</span>
-            <button className="level-arrow" onClick={() => onSetLevel(Math.min(MAX_LEVEL, level + 1))} disabled={level >= MAX_LEVEL}>›</button>
+            <button className="level-arrow" aria-label="Increase level" onClick={() => onSetLevel(Math.min(MAX_LEVEL, level + 1))} disabled={level >= MAX_LEVEL}>›</button>
           </div>
           <span className="stat-label">level</span>
         </div>
