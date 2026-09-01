@@ -12,13 +12,26 @@ test('ConfusionMatrix.weightedFailureRate returns 0 for note with no attempts', 
   assert.strictEqual(cm.weightedFailureRate('C'), 0);
 });
 
-test('ConfusionMatrix.weightedFailureRate returns 0 for note with only correct attempts', () => {
+test('ConfusionMatrix.weightedFailureRate returns 0 for note with only correct attempts and low latency', () => {
   const cm = new ConfusionMatrix();
-  // Simulate correct answer: record(target, response, correct, confident, isSine)
-  cm.record('C', 'C', true, true, false);
-  cm.record('C', 'C', true, false, false);
+  // Simulate correct answer: record(target, response, correct, confident, isSine, latencyMs)
+  cm.record('C', 'C', true, true, false, 300);
+  cm.record('C', 'C', true, false, false, 500);
 
   assert.strictEqual(cm.weightedFailureRate('C'), 0);
+});
+
+test('ConfusionMatrix.weightedFailureRate applies latency penalty for slow correct answers', () => {
+  const cm = new ConfusionMatrix();
+  // Very slow correct answer (>= 1500ms -> penalty 0.8)
+  cm.record('C', 'C', true, true, false, 1600);
+  // Total = 1, weighted = 0.8
+  // expected = 0.8 / 1 = 0.8
+  assert.strictEqual(cm.weightedFailureRate('C'), 0.8);
+
+  // Mid slow correct answer (1000ms -> penalty 0.4)
+  cm.record('D', 'D', true, true, false, 1000);
+  assert.strictEqual(cm.weightedFailureRate('D'), 0.4);
 });
 
 test('ConfusionMatrix.weightedFailureRate calculation with only unconfident wrong attempts', () => {
