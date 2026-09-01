@@ -54,6 +54,46 @@ function buildPerNoteStats(trials) {
   return stats;
 }
 
+const INSTRUMENT_FAMILIES = {
+  'piano': 'Keys', 'epiano': 'Keys', 'harpsichord': 'Keys', 'clavinet': 'Keys', 'organ': 'Keys', 'accordion': 'Keys',
+  'guitar': 'Strings', 'bass': 'Strings', 'harp': 'Strings', 'violin': 'Strings', 'cello': 'Strings', 'contrabass': 'Strings',
+  'trumpet': 'Brass', 'trombone': 'Brass', 'frenchhorn': 'Brass', 'tuba': 'Brass',
+  'flute': 'Woodwinds', 'clarinet': 'Woodwinds', 'oboe': 'Woodwinds', 'bassoon': 'Woodwinds', 'saxophone': 'Woodwinds',
+  'synth': 'Synth', 'pad': 'Synth', 'lead': 'Synth', 'pluck': 'Synth',
+};
+
+function buildOctaveStats(trials) {
+  const stats = {};
+  for (let o = 1; o <= 8; o++) stats[o] = { correct: 0, total: 0 };
+  for (const t of trials) {
+    if (t.target_octave != null && stats[t.target_octave]) {
+      stats[t.target_octave].total++;
+      if (t.result_bool) stats[t.target_octave].correct++;
+    }
+  }
+  return stats;
+}
+
+function buildInstrumentFamilyStats(trials) {
+  const stats = {};
+  for (const fam of new Set(Object.values(INSTRUMENT_FAMILIES))) {
+    stats[fam] = { correct: 0, total: 0 };
+  }
+  stats['Unknown'] = { correct: 0, total: 0 };
+
+  for (const t of trials) {
+    if (t.instrument_id && !t.sine_wave_flag && !t.noise_masked_flag) {
+      // Find the family, loosely matching the instrument ID if it has suffixes
+      const baseInst = Object.keys(INSTRUMENT_FAMILIES).find(k => t.instrument_id.toLowerCase().includes(k));
+      const fam = baseInst ? INSTRUMENT_FAMILIES[baseInst] : 'Unknown';
+      if (!stats[fam]) stats[fam] = { correct: 0, total: 0 };
+      stats[fam].total++;
+      if (t.result_bool) stats[fam].correct++;
+    }
+  }
+  return stats;
+}
+
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
 function accColor(pct) {
@@ -224,6 +264,57 @@ function PerNoteStats({ trials }) {
   );
 }
 
+function OctaveAndFamilyStats({ trials }) {
+  const octaveStats = useMemo(() => buildOctaveStats(trials), [trials]);
+  const familyStats = useMemo(() => buildInstrumentFamilyStats(trials), [trials]);
+
+  const activeOctaves = Object.keys(octaveStats).filter(o => octaveStats[o].total > 0).sort((a,b) => a - b);
+  const activeFamilies = Object.keys(familyStats).filter(f => familyStats[f].total > 0).sort();
+
+  if (activeOctaves.length === 0 && activeFamilies.length === 0) return null;
+
+  return (
+    <div className="of-wrap" style={{ display: 'flex', gap: '2rem', marginTop: '1rem' }}>
+      {activeOctaves.length > 0 && (
+        <div>
+          <h3>Accuracy by Octave</h3>
+          <table className="pn-table">
+            <thead>
+              <tr><th>Octave</th><th>Accuracy</th></tr>
+            </thead>
+            <tbody>
+              {activeOctaves.map(o => (
+                <tr key={o}>
+                  <th>{o}</th>
+                  <Cell stat={octaveStats[o]} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {activeFamilies.length > 0 && (
+        <div>
+          <h3>Accuracy by Instrument Family</h3>
+          <table className="pn-table">
+            <thead>
+              <tr><th>Family</th><th>Accuracy</th></tr>
+            </thead>
+            <tbody>
+              {activeFamilies.map(f => (
+                <tr key={f}>
+                  <th>{f}</th>
+                  <Cell stat={familyStats[f]} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function Dashboard({ onBack }) {
@@ -350,6 +441,7 @@ export default function Dashboard({ onBack }) {
       <AccuracyChart trials={trials} />
 
       <PerNoteStats trials={trials} />
+      <OctaveAndFamilyStats trials={trials} />
 
       <div className="matrix-filter">
         {['all', 'sine', 'instrument', 'detuned', 'noise'].map(f => (

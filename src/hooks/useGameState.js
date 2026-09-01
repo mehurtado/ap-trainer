@@ -8,6 +8,8 @@ import { AdaptiveStats } from '../audio/AdaptiveStats.js';
 
 const ADVANCEMENT_TRIALS = 50;
 const ADVANCEMENT_ACCURACY = 0.90;
+const DEMOTION_TRIALS = 30;
+const DEMOTION_ACCURACY = 0.50;
 const FATIGUE_WINDOW = 5;
 const FATIGUE_THRESHOLD = 0.70;
 const COLD_START_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -25,6 +27,7 @@ export function useGameState() {
   const [isColdStart, setIsColdStart] = useState(false);
   const [sessionFatigue, setSessionFatigue] = useState(false);
   const [recentResults, setRecentResults] = useState([]);  // rolling window
+  const [levelTrialCount, setLevelTrialCount] = useState(0);
   const [streak, setStreak] = useState(0);
   const [showConfidenceOverlay, setShowConfidenceOverlay] = useState(false);
   const [pendingGuess, setPendingGuess] = useState(null);
@@ -60,6 +63,7 @@ export function useGameState() {
 
   useEffect(() => {
     setActiveNotes(LEVEL_NOTES[level] || CHROMAS);
+    setLevelTrialCount(0); // Reset count when level changes
   }, [level]);
 
   // Detect cold start
@@ -213,7 +217,8 @@ export function useGameState() {
       isTimeout ? trial.targetChroma : chroma,  // timeout counts as wrong
       correct,
       confidence === 'high',
-      isSine
+      isSine,
+      latencyMs
     );
 
     // Fatigue check
@@ -226,13 +231,27 @@ export function useGameState() {
       newRecent.reduce((a, b) => a + b, 0) / newRecent.length < FATIGUE_THRESHOLD;
     if (fatigue) setSessionFatigue(true);
 
-    // Advancement check (last 50 trials) — disabled in drill mode
+    // Advancement / Demotion check (disabled in drill mode)
     if (trial.sessionType !== 'drill') {
+      const newLevelCount = levelTrialCount + 1;
+      setLevelTrialCount(newLevelCount);
+
       const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
       if (last50.length >= ADVANCEMENT_TRIALS) {
         const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
         if (acc >= ADVANCEMENT_ACCURACY && level < 12) {
           const newLevel = level + 1;
+          setLevel(newLevel);
+          setMeta('level', newLevel);
+        }
+      }
+
+      // Demotion check: If struggling badly at the current level, drop back down
+      if (newLevelCount >= DEMOTION_TRIALS && level > 1) {
+        const last30 = newConsec.slice(-DEMOTION_TRIALS);
+        const acc = last30.filter(Boolean).length / DEMOTION_TRIALS;
+        if (acc < DEMOTION_ACCURACY) {
+          const newLevel = level - 1;
           setLevel(newLevel);
           setMeta('level', newLevel);
         }
@@ -262,7 +281,7 @@ export function useGameState() {
       noise_masked_flag: trial.stimType === 'noise',
       noise_type: trial.stimType === 'noise' ? trial.noiseType : 'none',
       dropout_type: 'none',
-      tonal_context_flag: false,
+      tonal_context_flag: !!trial.tonalContext,
       attention_cue: 'none',
       user_guess: isTimeout ? 'TIMEOUT' : chroma,
       user_guess_direction: 'none',

@@ -16,6 +16,15 @@ export function weightedRandom(items, weights) {
   return items[items.length - 1];
 }
 
+// Helper to score a hit based on response latency
+// 1.0 for latency <= 500ms, scaling down to 0.2 at latency >= 1500ms
+export function calculateLatencyScore(hit, latencyMs) {
+  if (!hit) return 0;
+  if (latencyMs <= 500) return 1.0;
+  if (latencyMs >= 1500) return 0.2;
+  return 1.0 - (0.8 * ((latencyMs - 500) / 1000));
+}
+
 export class AdaptiveStats {
   constructor(trials) {
     this._chroma     = {};   // 'C'       → { correct, total }
@@ -23,33 +32,52 @@ export class AdaptiveStats {
     this._octave     = {};   // 'C:4'     → { correct, total }
     this._instrument = {};   // 'C:piano' → { correct, total }
     this._direction  = {};   // 'C:sharp' → { correct, total }
+    this._detuneStaircase = {}; // 'C:sharp' → current magnitude (cents)
 
     for (const t of trials) {
       const c = t.target_chroma;
       if (!c) continue;
       const hit = t.result_bool ? 1 : 0;
+      const score = calculateLatencyScore(hit, t.latency_ms || 0);
 
-      this._inc(this._chroma, c, hit);
+      this._inc(this._chroma, c, score);
 
       const type = t.sine_wave_flag     ? 'sine'
                  : t.noise_masked_flag  ? 'noise'
                  : Math.abs(t.cents_offset || 0) > 0 ? 'detuned'
                  : 'instrument';
-      this._inc(this._type, `${c}:${type}`, hit);
+      this._inc(this._type, `${c}:${type}`, score);
 
-      if (t.target_octave != null) this._inc(this._octave, `${c}:${t.target_octave}`, hit);
-      if (t.instrument_id)         this._inc(this._instrument, `${c}:${t.instrument_id}`, hit);
+      if (t.target_octave != null) this._inc(this._octave, `${c}:${t.target_octave}`, score);
+      if (t.instrument_id)         this._inc(this._instrument, `${c}:${t.instrument_id}`, score);
 
       if (type === 'detuned' && t.cents_direction && t.cents_direction !== 'none') {
-        this._inc(this._direction, `${c}:${t.cents_direction}`, hit);
+        const key = `${c}:${t.cents_direction}`;
+        this._inc(this._direction, key, score);
+
+        // Detune Staircase: correct (harder, -1 cent), wrong (easier, +2 cents)
+        // Clamp between 5 and 50 cents.
+        if (this._detuneStaircase[key] === undefined) {
+          this._detuneStaircase[key] = 25; // default starting point
+        }
+        if (t.result_bool) {
+          this._detuneStaircase[key] = Math.max(5, this._detuneStaircase[key] - 1);
+        } else {
+          this._detuneStaircase[key] = Math.min(50, this._detuneStaircase[key] + 2);
+        }
       }
     }
   }
 
-  _inc(map, key, hit) {
+  getDetuneStaircase(chroma, direction) {
+    const key = `${chroma}:${direction}`;
+    return this._detuneStaircase[key] !== undefined ? this._detuneStaircase[key] : 25;
+  }
+
+  _inc(map, key, score) {
     if (!map[key]) map[key] = { correct: 0, total: 0 };
     map[key].total++;
-    map[key].correct += hit;
+    map[key].correct += score;
   }
 
   // Returns inverse-accuracy weight for a stat bucket.

@@ -58,17 +58,19 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
   let centOffset = 0;
   let centDirection = 'none';
   if (stimType === 'detuned') {
-    const magnitude = randInt(10, 25);
     if (adaptiveStats) {
       centDirection = adaptiveStats.pickDetunedDirection(targetChroma);
+      const magnitude = adaptiveStats.getDetuneStaircase(targetChroma, centDirection);
       centOffset = centDirection === 'sharp' ? magnitude : -magnitude;
     } else {
+      const magnitude = randInt(10, 25);
       centOffset = magnitude * (Math.random() < 0.5 ? 1 : -1);
       centDirection = centOffset > 0 ? 'sharp' : 'flat';
     }
   }
 
   const noiseType = Math.random() < 0.5 ? 'white' : 'pink';
+  const tonalContext = !isDrill && Math.random() < 0.10; // 10% chance of interference
 
   return {
     targetChroma,
@@ -78,6 +80,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
     centOffset,
     centDirection,
     noiseType,
+    tonalContext,
     hz: chromaOctaveToHz(targetChroma, octave, centOffset),
     responseWindowMs: 1500,
     durationMs: 800,
@@ -87,8 +90,17 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
 // Plays the trial stimulus. Returns wall-clock ms timestamp when audio starts.
 export async function playTrial(trial) {
   await audioEngine.resume();
-  const startTime = audioEngine.currentTime + 0.05;
-  const wallClockStart = Date.now() + 50; // matches the +0.05s AudioContext offset
+  let startTime = audioEngine.currentTime + 0.05;
+  let wallClockStart = Date.now() + 50; // matches the +0.05s AudioContext offset
+
+  if (trial.tonalContext) {
+    const cadenceEnd = audioEngine.playCadence(startTime);
+    // Adjust start times to be after the cadence completes
+    const offsetMs = (cadenceEnd - startTime) * 1000;
+    startTime = cadenceEnd;
+    wallClockStart += offsetMs;
+  }
+
   const durationSec = trial.durationMs / 1000;
 
   let played = false;

@@ -155,6 +155,27 @@ class AudioEngine {
   }
 
   // Play sine wave at given Hz
+  // Plays a I-IV-V-I cadence in C Major (C - F - G - C) and returns the time it finishes.
+  playCadence(startTime) {
+    const chordDuration = 0.4;
+    const gap = 0.1;
+    const chords = [
+      [261.63, 329.63, 392.00], // C major (C4, E4, G4)
+      [261.63, 349.23, 440.00], // F major (C4, F4, A4) - 2nd inversion
+      [293.66, 392.00, 493.88], // G major (D4, G4, B4) - 1st inversion
+      [261.63, 329.63, 392.00], // C major (C4, E4, G4)
+    ];
+
+    let t = startTime;
+    for (let i = 0; i < chords.length; i++) {
+      for (const hz of chords[i]) {
+        this.playSine(hz, t, chordDuration, 0.2);
+      }
+      t += chordDuration + gap;
+    }
+    return t; // Time when the cadence ends
+  }
+
   playSine(hz, startTime, durationSec, gainValue = 0.5) {
     const osc = this.ctx.createOscillator();
     osc.type = 'sine';

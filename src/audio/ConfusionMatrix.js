@@ -5,18 +5,18 @@ export class ConfusionMatrix {
     this.mode = mode; // 'all' | 'sine' | 'instrument'
     // matrix[target][response] = { total, confident }
     this.matrix = {};
-    this.failureCounts = {};     // note → { total, confidentWrong }
+    this.failureCounts = {};     // note → { total, confidentWrong, correct, latencyPenalty }
     this.lastCorrect = null;
     for (const c of CHROMAS) {
       this.matrix[c] = {};
-      this.failureCounts[c] = { total: 0, confidentWrong: 0, correct: 0 };
+      this.failureCounts[c] = { total: 0, confidentWrong: 0, correct: 0, latencyPenalty: 0 };
       for (const r of CHROMAS) {
         this.matrix[c][r] = 0;
       }
     }
   }
 
-  record(target, response, correct, confident, isSine) {
+  record(target, response, correct, confident, isSine, latencyMs = 0) {
     if (this.mode === 'sine' && !isSine) return;
     if (this.mode === 'instrument' && isSine) return;
 
@@ -27,6 +27,16 @@ export class ConfusionMatrix {
     } else {
       this.failureCounts[target].correct++;
       this.lastCorrect = target;
+
+      // Calculate latency penalty for correct answers
+      // 0 penalty for <= 500ms, linearly up to 0.8 at >= 1500ms
+      let penalty = 0;
+      if (latencyMs >= 1500) {
+        penalty = 0.8;
+      } else if (latencyMs > 500) {
+        penalty = 0.8 * ((latencyMs - 500) / 1000);
+      }
+      this.failureCounts[target].latencyPenalty += penalty;
     }
   }
 
@@ -35,7 +45,7 @@ export class ConfusionMatrix {
     if (!f) return 0;
     const total = f.total + f.correct;
     if (total === 0) return 0;
-    const weighted = f.confidentWrong * 3 + (f.total - f.confidentWrong);
+    const weighted = f.confidentWrong * 3 + (f.total - f.confidentWrong) + f.latencyPenalty;
     return weighted / total;
   }
 
@@ -84,9 +94,9 @@ export class MatrixStore {
     this.instrument = new ConfusionMatrix('instrument');
   }
 
-  record(target, response, correct, confident, isSine) {
-    this.all.record(target, response, correct, confident, isSine);
-    this.sine.record(target, response, correct, confident, isSine);
-    this.instrument.record(target, response, correct, confident, isSine);
+  record(target, response, correct, confident, isSine, latencyMs = 0) {
+    this.all.record(target, response, correct, confident, isSine, latencyMs);
+    this.sine.record(target, response, correct, confident, isSine, latencyMs);
+    this.instrument.record(target, response, correct, confident, isSine, latencyMs);
   }
 }
