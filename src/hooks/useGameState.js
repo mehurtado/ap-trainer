@@ -213,7 +213,8 @@ export function useGameState() {
       isTimeout ? trial.targetChroma : chroma,  // timeout counts as wrong
       correct,
       confidence === 'high',
-      isSine
+      isSine,
+      latencyMs
     );
 
     // Fatigue check
