@@ -27,7 +27,7 @@ function pickStimulusType(isDrill = false) {
 // Generates the next trial spec given active notes and level.
 // When adaptiveStats is provided it drives all selection dimensions;
 // otherwise falls back to adversarial pick at level 12 or uniform random.
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats }) {
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs }) {
   const isDrill = sessionType === 'drill';
 
   // ── Chroma ────────────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
     centDirection,
     noiseType,
     hz: chromaOctaveToHz(targetChroma, octave, centOffset),
-    responseWindowMs: 1500,
+    responseWindowMs: responseWindowMs || 1500,
     durationMs: 800,
   };
 }
