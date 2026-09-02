@@ -262,30 +262,54 @@ export default function Dashboard({ onBack }) {
 
   // ── Aggregate stats ──────────────────────────────────────────────────────
 
-  const totalTrials   = trials.length;
-  const correctTrials = trials.filter(t => t.result_bool).length;
-  const overallAcc    = totalTrials
-    ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+  let correctTrials = 0;
+  let sineTotal = 0;
+  let sineCorrect = 0;
+  let timeouts = 0;
+  let validRtTotal = 0;
+  let validRtSum = 0;
+  let validRtCorrTotal = 0;
+  let validRtCorrSum = 0;
+  let siTotal = 0;
+  let siCorrect = 0;
 
-  const sineTrials = trials.filter(t => t.sine_wave_flag);
-  const sineAcc    = sineTrials.length
-    ? (sineTrials.filter(t => t.result_bool).length / sineTrials.length * 100).toFixed(1) : '--';
+  for (let i = 0; i < trials.length; i++) {
+    const t = trials[i];
+    if (t.result_bool) correctTrials++;
 
-  const timeouts    = trials.filter(t => t.timeout_flag || t.user_guess === 'TIMEOUT').length;
-  const timeoutFreq = totalTrials
-    ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+    if (t.sine_wave_flag) {
+      sineTotal++;
+      if (t.result_bool) sineCorrect++;
+    }
 
-  const validRt      = trials.filter(t => typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag);
-  const avgRt        = validRt.length
-    ? Math.round(validRt.reduce((s, t) => s + t.latency_ms, 0) / validRt.length) : '--';
-  const validRtCorr  = validRt.filter(t => t.result_bool);
-  const avgRtCorrect = validRtCorr.length
-    ? Math.round(validRtCorr.reduce((s, t) => s + t.latency_ms, 0) / validRtCorr.length) : '--';
+    if (t.timeout_flag || t.user_guess === 'TIMEOUT') {
+      timeouts++;
+    }
 
-  const siTrials = trials.filter(t => t.second_instinct_flag === true);
-  const siAcc    = siTrials.length
-    ? (siTrials.filter(t => t.second_instinct_note === t.target_chroma).length / siTrials.length * 100).toFixed(1)
-    : '--';
+    if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
+      validRtTotal++;
+      validRtSum += t.latency_ms;
+      if (t.result_bool) {
+        validRtCorrTotal++;
+        validRtCorrSum += t.latency_ms;
+      }
+    }
+
+    if (t.second_instinct_flag === true) {
+      siTotal++;
+      if (t.second_instinct_note === t.target_chroma) {
+        siCorrect++;
+      }
+    }
+  }
+
+  const totalTrials = trials.length;
+  const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+  const sineAcc = sineTotal ? (sineCorrect / sineTotal * 100).toFixed(1) : '--';
+  const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+  const avgRt = validRtTotal ? Math.round(validRtSum / validRtTotal) : '--';
+  const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
+  const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
 
   // ── Render ───────────────────────────────────────────────────────────────
 
