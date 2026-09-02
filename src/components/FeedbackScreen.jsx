@@ -1,6 +1,12 @@
 export default function FeedbackScreen({ feedback, onContinue, sessionFatigue }) {
   if (!feedback) return null;
 
+  const getDirectionArrow = (dir) => {
+    if (dir === 'sharp') return ' ↑';
+    if (dir === 'flat') return ' ↓';
+    return '';
+  };
+
   return (
     <div className="screen feedback-screen">
       <div className={`result-indicator ${feedback.correct ? 'correct' : 'wrong'}`}>
@@ -10,10 +16,12 @@ export default function FeedbackScreen({ feedback, onContinue, sessionFatigue })
       {!feedback.correct && (
         <div className="correction-info">
           <div className="correct-label">
-            {feedback.isTimeout ? 'TIMEOUT' : `You pressed: ${feedback.guess}`}
+            {feedback.isTimeout
+              ? 'TIMEOUT'
+              : `You pressed: ${feedback.guess}${feedback.wasDirectionTested ? getDirectionArrow(feedback.guessDirection) : ''}`}
           </div>
           <div className="target-label">
-            Correct: <strong>{feedback.target}</strong>
+            Correct: <strong>{feedback.target}{feedback.wasDirectionTested ? getDirectionArrow(feedback.targetDirection) : ''}</strong>
           </div>
           {feedback.neighbors.length > 0 && (
             <div className="neighbors">

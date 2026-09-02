@@ -193,8 +193,9 @@ export function useGameState() {
   async function submitGuess(chroma, latencyMs, confidence) {
     const trial = currentTrial;
     const isTimeout = chroma === '__timeout__';
+    const isDirectionTested = notExactModeState && trial.stimType === 'detuned';
     const correct = !isTimeout && chroma === trial.targetChroma &&
-      (notExactModeState ? pendingGuess?.direction === trial.centDirection : true);
+      (isDirectionTested ? pendingGuess?.direction === trial.centDirection : true);
 
     if (!correct && !isTimeout && confidence === 'low') {
       // Need second instinct prompt
@@ -304,6 +305,9 @@ export function useGameState() {
       isTimeout,
       confidence,
       neighbors: topPairs,
+      guessDirection: pendingGuess?.direction,
+      targetDirection: trial.centDirection,
+      wasDirectionTested: notExactModeState && trial.stimType === 'detuned',
     });
 
     setScreen('feedback');
