@@ -12,6 +12,21 @@ const FATIGUE_WINDOW = 5;
 const FATIGUE_THRESHOLD = 0.70;
 const COLD_START_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+const WINDOW_STEP_DOWN_MS = 50;
+const WINDOW_STEP_UP_MS = 75;
+const WARMUP_TRIALS = 4;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getWindowBounds(level) {
+  return {
+    minMs: Math.max(500, 1200 - (level - 1) * 75),
+    maxMs: Math.max(1100, 2200 - (level - 1) * 50),
+  };
+}
+
 export function useGameState() {
   const [screen, setScreen] = useState('home'); // 'home' | 'trial' | 'wipe' | 'feedback' | 'dashboard' | 'ambient' | 'micro'
   const [level, setLevel] = useState(1);
@@ -34,6 +49,8 @@ export function useGameState() {
   const [notExactModeState, setNotExactModeState] = useState(false);
   const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
   const [adaptiveMode, setAdaptiveModeState] = useState(false);
+  const [responseWindowMs, setResponseWindowMs] = useState(1500);
+  const [consecutiveCorrectTiming, setConsecutiveCorrectTiming] = useState(0);
 
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
@@ -48,10 +65,18 @@ export function useGameState() {
     getMeta('lastTrialTime').then(v => { if (v) lastTrialTime.current = v; });
     getMeta('adaptiveMode').then(v => { if (v != null) setAdaptiveModeState(v); });
     getMeta('notExactMode').then(v => { if (v != null) setNotExactModeState(v); });
+    getMeta('responseWindowMs').then(v => { if (v != null) setResponseWindowMs(v); });
   }, []);
 
   useEffect(() => {
     setActiveNotes(LEVEL_NOTES[level] || CHROMAS);
+    // Enforce bounds when level changes
+    const { minMs, maxMs } = getWindowBounds(level);
+    setResponseWindowMs(prev => {
+      const newVal = clamp(prev, minMs, maxMs);
+      if (newVal !== prev) setMeta('responseWindowMs', newVal);
+      return newVal;
+    });
   }, [level]);
 
   // Detect cold start
@@ -99,6 +124,7 @@ export function useGameState() {
     setRecentResults([]);
     setConsecutiveResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     const cold = checkColdStart();
     setIsColdStart(cold);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
@@ -111,6 +137,7 @@ export function useGameState() {
     setTrialIndex(0);
     setRecentResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
@@ -124,6 +151,7 @@ export function useGameState() {
     setRecentResults([]);
     setConsecutiveResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
@@ -135,6 +163,15 @@ export function useGameState() {
     const notes = (sessType === 'drill' && drillNotesRef.current)
       ? drillNotesRef.current
       : LEVEL_NOTES[level] || CHROMAS;
+    // Ensure response window bounds in case of unexpected state before trial generated
+    let currentWindowMs = responseWindowMs;
+    const { minMs, maxMs } = getWindowBounds(level);
+    currentWindowMs = clamp(currentWindowMs, minMs, maxMs);
+    if (currentWindowMs !== responseWindowMs) {
+      setResponseWindowMs(currentWindowMs);
+      setMeta('responseWindowMs', currentWindowMs);
+    }
+
     const trial = generateTrial({
       activeNotes: notes,
       level,
@@ -143,6 +180,7 @@ export function useGameState() {
       confusionMatrix: matrixStore.current.instruments[inst] || matrixStore.current.all,
       sessionType: sessType,
       adaptiveStats: adaptiveStatsRef.current,
+      responseWindowMs: currentWindowMs,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
@@ -262,6 +300,27 @@ export function useGameState() {
     lastTrialTime.current = Date.now();
     setMeta('lastTrialTime', Date.now());
 
+    // Timing staircase update
+    if (trialIndex >= WARMUP_TRIALS && trial.sessionType !== 'drill') {
+      const { minMs, maxMs } = getWindowBounds(level);
+      if (!correct || isTimeout) {
+        setConsecutiveCorrectTiming(0);
+        const newWindow = clamp(responseWindowMs + WINDOW_STEP_UP_MS, minMs, maxMs);
+        setResponseWindowMs(newWindow);
+        setMeta('responseWindowMs', newWindow);
+      } else {
+        const nextCorrectCount = consecutiveCorrectTiming + 1;
+        if (nextCorrectCount >= 2) {
+          setConsecutiveCorrectTiming(0);
+          const newWindow = clamp(responseWindowMs - WINDOW_STEP_DOWN_MS, minMs, maxMs);
+          setResponseWindowMs(newWindow);
+          setMeta('responseWindowMs', newWindow);
+        } else {
+          setConsecutiveCorrectTiming(nextCorrectCount);
+        }
+      }
+    }
+
     // Persist trial
     const trialLog = {
       is_cold_start: trial.isColdStart || false,
@@ -289,6 +348,7 @@ export function useGameState() {
       session_type: trial.sessionType,
       drill_mode_flag: trial.sessionType === 'drill',
       drill_notes: trial.sessionType === 'drill' ? drillNotesRef.current : null,
+      response_window_ms: trial.responseWindowMs,
       notes: '',
     };
     await saveTrial(trialLog);
