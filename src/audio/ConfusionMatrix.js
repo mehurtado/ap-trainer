@@ -1,4 +1,4 @@
-import { CHROMAS } from './constants.js';
+import { CHROMAS, INSTRUMENTS } from './constants.js';
 
 export class ConfusionMatrix {
   constructor(mode = 'all') {
@@ -92,11 +92,19 @@ export class MatrixStore {
     this.all = new ConfusionMatrix('all');
     this.sine = new ConfusionMatrix('sine');
     this.instrument = new ConfusionMatrix('instrument');
+    this.instruments = {};
+    for (const inst of INSTRUMENTS) {
+      this.instruments[inst] = new ConfusionMatrix('instrument');
+    }
   }
 
-  record(target, response, correct, confident, isSine, latencyMs = 0) {
+  record(target, response, correct, confident, isSine, latencyMs = 0, instrumentId = null) {
     this.all.record(target, response, correct, confident, isSine, latencyMs);
     this.sine.record(target, response, correct, confident, isSine, latencyMs);
     this.instrument.record(target, response, correct, confident, isSine, latencyMs);
+
+    if (instrumentId && this.instruments && this.instruments[instrumentId] && !isSine) {
+      this.instruments[instrumentId].record(target, response, correct, confident, isSine, latencyMs);
+    }
   }
 }
