@@ -2,6 +2,35 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { getAllTrials, exportCSV, clearHistory } from '../db/db.js';
 import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
+export function calculateMaxStreak(trials) {
+  let maxStreak = 0;
+  let currentStreak = 0;
+  for (const t of trials) {
+    if (t.result_bool) {
+      currentStreak++;
+      if (currentStreak > maxStreak) {
+        maxStreak = currentStreak;
+      }
+    } else {
+      currentStreak = 0;
+    }
+  }
+  return maxStreak;
+}
+
+export function calculateSineRtCorrect(trials) {
+  const sineTrialsCorr = trials.filter(t => t.sine_wave_flag && typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag && t.result_bool);
+  if (sineTrialsCorr.length === 0) return '--';
+  return Math.round(sineTrialsCorr.reduce((s, t) => s + t.latency_ms, 0) / sineTrialsCorr.length);
+}
+
+export function calculateNoiseRtCorrect(trials) {
+  const noiseTrialsCorr = trials.filter(t => t.noise_masked_flag && typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag && t.result_bool);
+  if (noiseTrialsCorr.length === 0) return '--';
+  return Math.round(noiseTrialsCorr.reduce((s, t) => s + t.latency_ms, 0) / noiseTrialsCorr.length);
+}
+
+
 // ── Data builders ──────────────────────────────────────────────────────────
 
 function buildConfusionGrid(trials, filter = 'all') {
@@ -287,6 +316,10 @@ export default function Dashboard({ onBack }) {
     ? (siTrials.filter(t => t.second_instinct_note === t.target_chroma).length / siTrials.length * 100).toFixed(1)
     : '--';
 
+  const maxStreak = calculateMaxStreak(trials);
+  const avgRtSineCorrect = calculateSineRtCorrect(trials);
+  const avgRtNoiseCorrect = calculateNoiseRtCorrect(trials);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -344,6 +377,18 @@ export default function Dashboard({ onBack }) {
         <div className="stat-card">
           <span className="stat-value">{avgRtCorrect}{avgRtCorrect !== '--' ? 'ms' : ''}</span>
           <span className="stat-label">avg RT (correct)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{avgRtSineCorrect}{avgRtSineCorrect !== '--' ? 'ms' : ''}</span>
+          <span className="stat-label">avg sine RT (correct)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{avgRtNoiseCorrect}{avgRtNoiseCorrect !== '--' ? 'ms' : ''}</span>
+          <span className="stat-label">avg noise RT (correct)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{maxStreak}</span>
+          <span className="stat-label">max streak</span>
         </div>
       </div>
 
