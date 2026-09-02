@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { ConfusionMatrix } from './ConfusionMatrix.js';
+import { ConfusionMatrix, MatrixStore } from './ConfusionMatrix.js';
 
 test('ConfusionMatrix.weightedFailureRate returns 0 for unknown note', () => {
   const cm = new ConfusionMatrix();
@@ -78,4 +78,35 @@ test('ConfusionMatrix.weightedFailureRate calculation with mixed attempts', () =
   // weighted = (confidentWrong * 3) + unconfidentWrong = (1 * 3) + 2 = 5
   // expected = 5 / 4 = 1.25
   assert.strictEqual(cm.weightedFailureRate('C'), 1.25);
+});
+
+test('MatrixStore records to per-instrument matrix', () => {
+  const store = new MatrixStore();
+
+  // Record an instrument trial
+  store.record('C', 'C#', false, true, false, 0, 'piano');
+
+  // Verify it recorded in 'all' and 'instrument' matrices
+  assert.strictEqual(store.all.failureCounts['C'].total, 1);
+  assert.strictEqual(store.instrument.failureCounts['C'].total, 1);
+  assert.strictEqual(store.sine.failureCounts['C'].total, 0); // sine should ignore non-sine
+
+  // Verify it recorded in the specific instrument matrix
+  assert.strictEqual(store.instruments['piano'].failureCounts['C'].total, 1);
+  assert.strictEqual(store.instruments['guitar'].failureCounts['C'].total, 0); // other instrument unaffected
+});
+
+test('MatrixStore does not record sine waves in instrument matrix', () => {
+  const store = new MatrixStore();
+
+  // Record a sine wave trial but accidentally pass an instrumentId (shouldn't happen, but test robustness)
+  store.record('C', 'C#', false, true, true, 0, 'piano');
+
+  // Verify it recorded in 'all' and 'sine' matrices
+  assert.strictEqual(store.all.failureCounts['C'].total, 1);
+  assert.strictEqual(store.sine.failureCounts['C'].total, 1);
+  assert.strictEqual(store.instrument.failureCounts['C'].total, 0);
+
+  // Verify it did not record in the instrument specific matrix
+  assert.strictEqual(store.instruments['piano'].failureCounts['C'].total, 0);
 });

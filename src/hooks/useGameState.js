@@ -143,7 +143,7 @@ export function useGameState() {
       level,
       instrumentId: inst,
       trialIndexInSession: idx,
-      confusionMatrix: matrixStore.current.all,
+      confusionMatrix: matrixStore.current.instruments[inst] || matrixStore.current.all,
       sessionType: sessType,
       adaptiveStats: adaptiveStatsRef.current,
     });
@@ -214,7 +214,8 @@ export function useGameState() {
       correct,
       confidence === 'high',
       isSine,
-      latencyMs
+      latencyMs,
+      trial.instrument
     );
 
     // Fatigue check
