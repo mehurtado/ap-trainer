@@ -30,6 +30,7 @@ function buildPerNoteStats(trials) {
   for (const c of CHROMAS) {
     stats[c] = {
       overall: { correct: 0, total: 0 },
+      rt:      { sum: 0, count: 0 },
       sine:    { correct: 0, total: 0 },
       noise:   { correct: 0, total: 0 },
       sharp:   { correct: 0, total: 0 },  // detuned sharp trials
@@ -41,6 +42,11 @@ function buildPerNoteStats(trials) {
     const s = stats[t.target_chroma];
     s.overall.total++;
     if (t.result_bool) s.overall.correct++;
+
+    if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
+      s.rt.sum += t.latency_ms;
+      s.rt.count++;
+    }
     if (t.sine_wave_flag) {
       s.sine.total++;
       if (t.result_bool) s.sine.correct++;
@@ -205,6 +211,7 @@ function PerNoteStats({ trials }) {
           <tr>
             <th className="pn-th pn-left">Note</th>
             <th className="pn-th">Overall</th>
+            <th className="pn-th">Avg RT</th>
             {hasSine  && <th className="pn-th">Sine</th>}
             {hasNoise && <th className="pn-th">Noise</th>}
             {hasSharp && <th className="pn-th">Sharp ↑</th>}
@@ -216,6 +223,11 @@ function PerNoteStats({ trials }) {
             <tr key={c}>
               <td className="pn-label">{c}</td>
               <AccCell stat={stats[c].overall} />
+              {stats[c].rt.count > 0 ? (
+                <td className="pn-cell">{Math.round(stats[c].rt.sum / stats[c].rt.count)}ms</td>
+              ) : (
+                <td className="pn-cell pn-dim">—</td>
+              )}
               {hasSine  && <AccCell stat={stats[c].sine} />}
               {hasNoise && <AccCell stat={stats[c].noise} />}
               {hasSharp && <AccCell stat={stats[c].sharp} />}
@@ -315,6 +327,36 @@ export default function Dashboard({ onBack }) {
   const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
   const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
 
+  let earlyAcc = { correct: 0, total: 0 };
+  let lateAcc  = { correct: 0, total: 0 };
+
+  if (trials.length > 0) {
+    const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let sessionIdx = 0;
+    let lastTime = 0;
+
+    for (const t of sorted) {
+      const time = new Date(t.timestamp).getTime();
+      if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
+        sessionIdx = 0;
+      }
+
+      sessionIdx++;
+      lastTime = time;
+
+      if (sessionIdx <= 10) {
+        earlyAcc.total++;
+        if (t.result_bool) earlyAcc.correct++;
+      } else {
+        lateAcc.total++;
+        if (t.result_bool) lateAcc.correct++;
+      }
+    }
+  }
+
+  const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
+  const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -372,6 +414,14 @@ export default function Dashboard({ onBack }) {
         <div className="stat-card">
           <span className="stat-value">{avgRtCorrect}{avgRtCorrect !== '--' ? 'ms' : ''}</span>
           <span className="stat-label">avg RT (correct)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{earlyAccPct}{earlyAccPct !== '--' ? '%' : ''}</span>
+          <span className="stat-label">Early Acc (1-10)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{lateAccPct}{lateAccPct !== '--' ? '%' : ''}</span>
+          <span className="stat-label">Late Acc (11+)</span>
         </div>
       </div>
 
