@@ -17,6 +17,8 @@ export default function HomeScreen({
   onToggleTheme,
   adaptiveMode,
   onToggleAdaptive,
+  notExactMode,
+  onToggleNotExact,
 }) {
   const [showDrillPicker, setShowDrillPicker] = useState(false);
   const [pickedNotes, setPickedNotes] = useState([]);
@@ -127,6 +129,16 @@ export default function HomeScreen({
           {adaptiveMode ? '◉' : '○'} Adaptive
         </button>
         {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
+      </div>
+
+      <div className="adaptive-row">
+        <button
+          className={`adaptive-btn${notExactMode ? ' active' : ''}`}
+          onClick={onToggleNotExact}
+        >
+          {notExactMode ? '◉' : '○'} Microtonal
+        </button>
+        {notExactMode && <span className="adaptive-hint">ask direction for detuned</span>}
       </div>
 
       <div className="secondary-buttons">

@@ -31,17 +31,8 @@ export function useGameState() {
   const [audioStartMs, setAudioStartMs] = useState(0);
   const [activeNotes, setActiveNotes] = useState(LEVEL_NOTES[1]);
   const [consecutiveResults, setConsecutiveResults] = useState([]);
-  // TODO: notExactMode is not yet functional. Intended implementation:
-  //   1. Add a UI toggle (HomeScreen or settings) to enable this mode for detuned trials.
-  //   2. In handleNotePress, when notExactMode is active and stimType === 'detuned',
-  //      store the chosen chroma then present a sharp/flat step, saving both into
-  //      pendingGuess: { chroma, latencyMs, direction }.
-  //   3. The direction buttons in TrialScreen must set pendingGuess.direction rather
-  //      than calling handleNotePress('__sharp__'/'__flat__'), which never matches
-  //      targetChroma and always marks the trial wrong.
-  //   4. Once direction is stored in pendingGuess, the correctness check
-  //      `pendingGuess?.direction === trial.centDirection` in submitGuess will work.
-  const [notExactMode, setNotExactMode] = useState(false);
+  const [notExactModeState, setNotExactModeState] = useState(false);
+  const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
   const [adaptiveMode, setAdaptiveModeState] = useState(false);
 
   const matrixStore = useRef(new MatrixStore());
@@ -56,6 +47,7 @@ export function useGameState() {
     getMeta('streak').then(v => { if (v) setStreak(v); });
     getMeta('lastTrialTime').then(v => { if (v) lastTrialTime.current = v; });
     getMeta('adaptiveMode').then(v => { if (v != null) setAdaptiveModeState(v); });
+    getMeta('notExactMode').then(v => { if (v != null) setNotExactModeState(v); });
   }, []);
 
   useEffect(() => {
@@ -72,6 +64,11 @@ export function useGameState() {
   function setAdaptiveMode(v) {
     setAdaptiveModeState(v);
     setMeta('adaptiveMode', v);
+  }
+
+  function setNotExactMode(v) {
+    setNotExactModeState(v);
+    setMeta('notExactMode', v);
   }
 
   async function buildAdaptiveStats() {
@@ -154,19 +151,31 @@ export function useGameState() {
     const startMs = await playTrial(trial);
     setAudioStartMs(startMs);
     setShowConfidenceOverlay(false);
+    setShowDirectionOverlay(false);
     setSecondInstinctPrompt(false);
     setPendingGuess(null);
   }
 
   function handleNotePress(chroma) {
     if (screen !== 'trial') return;
-    if (showConfidenceOverlay) return;
+    if (showConfidenceOverlay || showDirectionOverlay) return;
     const latencyMs = Date.now() - audioStartMs;
     if (latencyMs > currentTrial.responseWindowMs) {
       // Already timed out — ignore late presses
       return;
     }
     setPendingGuess({ chroma, latencyMs });
+    if (notExactModeState && currentTrial.stimType === 'detuned') {
+      setShowDirectionOverlay(true);
+    } else {
+      setShowConfidenceOverlay(true);
+    }
+  }
+
+  function handleDirectionPress(direction) {
+    if (!pendingGuess) return;
+    setPendingGuess(prev => ({ ...prev, direction }));
+    setShowDirectionOverlay(false);
     setShowConfidenceOverlay(true);
   }
 
@@ -185,7 +194,7 @@ export function useGameState() {
     const trial = currentTrial;
     const isTimeout = chroma === '__timeout__';
     const correct = !isTimeout && chroma === trial.targetChroma &&
-      (notExactMode ? pendingGuess?.direction === trial.centDirection : true);
+      (notExactModeState ? pendingGuess?.direction === trial.centDirection : true);
 
     if (!correct && !isTimeout && confidence === 'low') {
       // Need second instinct prompt
@@ -266,7 +275,7 @@ export function useGameState() {
       tonal_context_flag: false,
       attention_cue: 'none',
       user_guess: isTimeout ? 'TIMEOUT' : chroma,
-      user_guess_direction: 'none',
+      user_guess_direction: pendingGuess?.direction || 'none',
       confidence,
       latency_ms: latencyMs,
       result_bool: correct,
@@ -357,9 +366,10 @@ export function useGameState() {
     sessionFatigue,
     streak,
     activeNotes,
-    notExactMode, setNotExactMode,
+    notExactMode: notExactModeState, setNotExactMode,
     adaptiveMode, setAdaptiveMode,
     showConfidenceOverlay,
+    showDirectionOverlay,
     pendingGuess,
     consecutiveResults,
     matrixStore,
@@ -367,6 +377,7 @@ export function useGameState() {
     startMicro: beginMicro,
     startDrill: beginDrill,
     handleNotePress,
+    handleDirectionPress,
     handleConfidence,
     handleTimeout,
     handleSecondInstinct,
