@@ -12,6 +12,10 @@ function buildConfusionGrid(trials, filter = 'all') {
     if (filter === 'instrument' && (t.sine_wave_flag || t.noise_masked_flag || Math.abs(t.cents_offset || 0) > 0)) continue;
     if (filter === 'detuned'    && Math.abs(t.cents_offset || 0) === 0) continue;
     if (filter === 'noise'      && !t.noise_masked_flag) continue;
+    if (filter === 'cold'       && !t.is_cold_start) continue;
+    if (filter === 'drill'      && t.session_type !== 'drill') continue;
+    if (filter === 'evening'    && (t.is_cold_start || t.session_type !== 'evening')) continue;
+    if (filter === 'second_instinct' && !t.second_instinct_flag) continue;
     if (filter.startsWith('inst:') && t.instrument_id !== filter.slice(5)) continue;
     if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.target_chroma) {
       grid[t.target_chroma][t.user_guess] = (grid[t.target_chroma][t.user_guess] || 0) + 1;
@@ -376,24 +380,29 @@ export default function Dashboard({ onBack }) {
       <PerNoteStats trials={trials} />
 
       <div className="matrix-filter">
-        {['all', 'sine', 'instrument', 'detuned', 'noise'].map(f => (
-          <button
-            key={f}
-            className={`filter-btn ${matrixFilter === f ? 'active' : ''}`}
-            onClick={() => setMatrixFilter(f)}
-          >
-            {f}
-          </button>
-        ))}
         <select
           className="filter-dropdown"
-          value={matrixFilter.startsWith('inst:') ? matrixFilter : ''}
+          value={matrixFilter}
           onChange={e => setMatrixFilter(e.target.value)}
         >
-          <option value="" disabled>Per Instrument</option>
-          {INSTRUMENTS.map(inst => (
-            <option key={inst} value={`inst:${inst}`}>{inst}</option>
-          ))}
+          <optgroup label="General">
+            <option value="all">All</option>
+            <option value="sine">Sine</option>
+            <option value="instrument">Instrument</option>
+            <option value="detuned">Detuned</option>
+            <option value="noise">Noise</option>
+          </optgroup>
+          <optgroup label="Context">
+            <option value="cold">Cold Start</option>
+            <option value="drill">Drill</option>
+            <option value="evening">Evening</option>
+            <option value="second_instinct">Second Instinct</option>
+          </optgroup>
+          <optgroup label="Per Instrument">
+            {INSTRUMENTS.map(inst => (
+              <option key={inst} value={`inst:${inst}`}>{inst}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
