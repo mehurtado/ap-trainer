@@ -42,30 +42,30 @@ test('AdaptiveStats.pickStimType', async (t) => {
     // We provide >= 5 trials (MIN_TRIALS) per stimulus type to trigger _w behavior.
     const trials = [];
 
-    // 5 correct sine trials -> accuracy 1.0 -> weight Math.max(0.1, 1 - 1.0) = 0.1
+    // 5 correct sine trials (fast <= 500ms -> score 1.0) -> accuracy 1.0 -> weight Math.max(0.1, 1 - 1.0) = 0.1
     for (let i = 0; i < 5; i++) {
-      trials.push({ target_chroma: 'C', result_bool: true, sine_wave_flag: true });
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 300, sine_wave_flag: true });
     }
 
     // 5 incorrect noise trials -> accuracy 0.0 -> weight Math.max(0.1, 1 - 0.0) = 1.0
     for (let i = 0; i < 5; i++) {
-      trials.push({ target_chroma: 'C', result_bool: false, noise_masked_flag: true });
+      trials.push({ target_chroma: 'C', result_bool: false, latency_ms: 600, noise_masked_flag: true });
     }
 
     // 5 instrument trials with 60% accuracy -> accuracy 0.6 -> weight Math.max(0.1, 1 - 0.6) = 0.4
     for (let i = 0; i < 3; i++) {
-      trials.push({ target_chroma: 'C', result_bool: true, instrument_id: 'piano' });
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 400, instrument_id: 'piano' });
     }
     for (let i = 0; i < 2; i++) {
-      trials.push({ target_chroma: 'C', result_bool: false, instrument_id: 'piano' });
+      trials.push({ target_chroma: 'C', result_bool: false, latency_ms: 1200, instrument_id: 'piano' });
     }
 
     // 5 detuned trials with 20% accuracy -> accuracy 0.2 -> weight Math.max(0.1, 1 - 0.2) = 0.8
     for (let i = 0; i < 1; i++) {
-      trials.push({ target_chroma: 'C', result_bool: true, cents_offset: 50, cents_direction: 'sharp' });
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 200, cents_offset: 50, cents_direction: 'sharp' });
     }
     for (let i = 0; i < 4; i++) {
-      trials.push({ target_chroma: 'C', result_bool: false, cents_offset: 50, cents_direction: 'sharp' });
+      trials.push({ target_chroma: 'C', result_bool: false, latency_ms: 300, cents_offset: 50, cents_direction: 'sharp' });
     }
 
     const stats = new AdaptiveStats(trials);
@@ -104,6 +104,56 @@ test('AdaptiveStats.pickStimType', async (t) => {
 
     // noise
     randomMock = mock.method(Math, 'random', () => 0.8);
+    assert.strictEqual(stats.pickStimType('C', false), 'noise');
+    randomMock.mock.restore();
+  });
+
+  await t.test('weights shift based on latency penalty', () => {
+    const trials = [];
+
+    // Sine: 5 correct but very slow (1500ms = 0.2 score) -> score 1.0 / 5 = 0.2 -> weight 0.8
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 1600, sine_wave_flag: true });
+    }
+
+    // Instrument: 5 correct and fast (200ms = 1.0 score) -> score 5.0 / 5 = 1.0 -> weight 0.1
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 200, instrument_id: 'piano' });
+    }
+
+    // Detuned: 5 correct, mid latency (1000ms = 0.6 score) -> score 3.0 / 5 = 0.6 -> weight 0.4
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: true, latency_ms: 1000, cents_offset: 50, cents_direction: 'sharp' });
+    }
+
+    // Noise: 5 wrong (score 0.0) -> score 0.0 / 5 = 0.0 -> weight 1.0
+    for (let i = 0; i < 5; i++) {
+      trials.push({ target_chroma: 'C', result_bool: false, latency_ms: 1000, noise_masked_flag: true });
+    }
+
+    const stats = new AdaptiveStats(trials);
+
+    // Weights:
+    // sine: 0.8
+    // instrument: 0.1
+    // detuned: 0.4
+    // noise: 1.0
+    // Total = 2.3
+    // Cumulative: sine < 0.8/2.3 (0.347), instrument < 0.9/2.3 (0.391), detuned < 1.3/2.3 (0.565), noise <= 1.0
+
+    let randomMock = mock.method(Math, 'random', () => 0.2); // 0.2 * 2.3 = 0.46 < 0.8 -> sine
+    assert.strictEqual(stats.pickStimType('C', false), 'sine');
+    randomMock.mock.restore();
+
+    randomMock = mock.method(Math, 'random', () => 0.36); // 0.36 * 2.3 = 0.828 -> instrument
+    assert.strictEqual(stats.pickStimType('C', false), 'instrument');
+    randomMock.mock.restore();
+
+    randomMock = mock.method(Math, 'random', () => 0.45); // 0.45 * 2.3 = 1.035 -> detuned
+    assert.strictEqual(stats.pickStimType('C', false), 'detuned');
+    randomMock.mock.restore();
+
+    randomMock = mock.method(Math, 'random', () => 0.8); // 0.8 * 2.3 = 1.84 -> noise
     assert.strictEqual(stats.pickStimType('C', false), 'noise');
     randomMock.mock.restore();
   });

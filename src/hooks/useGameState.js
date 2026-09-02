@@ -12,6 +12,21 @@ const FATIGUE_WINDOW = 5;
 const FATIGUE_THRESHOLD = 0.70;
 const COLD_START_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+const WINDOW_STEP_DOWN_MS = 50;
+const WINDOW_STEP_UP_MS = 75;
+const WARMUP_TRIALS = 4;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getWindowBounds(level) {
+  return {
+    minMs: Math.max(500, 1200 - (level - 1) * 75),
+    maxMs: Math.max(1100, 2200 - (level - 1) * 50),
+  };
+}
+
 export function useGameState() {
   const [screen, setScreen] = useState('home'); // 'home' | 'trial' | 'wipe' | 'feedback' | 'dashboard' | 'ambient' | 'micro'
   const [level, setLevel] = useState(1);
@@ -31,18 +46,11 @@ export function useGameState() {
   const [audioStartMs, setAudioStartMs] = useState(0);
   const [activeNotes, setActiveNotes] = useState(LEVEL_NOTES[1]);
   const [consecutiveResults, setConsecutiveResults] = useState([]);
-  // TODO: notExactMode is not yet functional. Intended implementation:
-  //   1. Add a UI toggle (HomeScreen or settings) to enable this mode for detuned trials.
-  //   2. In handleNotePress, when notExactMode is active and stimType === 'detuned',
-  //      store the chosen chroma then present a sharp/flat step, saving both into
-  //      pendingGuess: { chroma, latencyMs, direction }.
-  //   3. The direction buttons in TrialScreen must set pendingGuess.direction rather
-  //      than calling handleNotePress('__sharp__'/'__flat__'), which never matches
-  //      targetChroma and always marks the trial wrong.
-  //   4. Once direction is stored in pendingGuess, the correctness check
-  //      `pendingGuess?.direction === trial.centDirection` in submitGuess will work.
-  const [notExactMode, setNotExactMode] = useState(false);
+  const [notExactModeState, setNotExactModeState] = useState(false);
+  const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
   const [adaptiveMode, setAdaptiveModeState] = useState(false);
+  const [responseWindowMs, setResponseWindowMs] = useState(1500);
+  const [consecutiveCorrectTiming, setConsecutiveCorrectTiming] = useState(0);
 
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
@@ -56,10 +64,19 @@ export function useGameState() {
     getMeta('streak').then(v => { if (v) setStreak(v); });
     getMeta('lastTrialTime').then(v => { if (v) lastTrialTime.current = v; });
     getMeta('adaptiveMode').then(v => { if (v != null) setAdaptiveModeState(v); });
+    getMeta('notExactMode').then(v => { if (v != null) setNotExactModeState(v); });
+    getMeta('responseWindowMs').then(v => { if (v != null) setResponseWindowMs(v); });
   }, []);
 
   useEffect(() => {
     setActiveNotes(LEVEL_NOTES[level] || CHROMAS);
+    // Enforce bounds when level changes
+    const { minMs, maxMs } = getWindowBounds(level);
+    setResponseWindowMs(prev => {
+      const newVal = clamp(prev, minMs, maxMs);
+      if (newVal !== prev) setMeta('responseWindowMs', newVal);
+      return newVal;
+    });
   }, [level]);
 
   // Detect cold start
@@ -72,6 +89,11 @@ export function useGameState() {
   function setAdaptiveMode(v) {
     setAdaptiveModeState(v);
     setMeta('adaptiveMode', v);
+  }
+
+  function setNotExactMode(v) {
+    setNotExactModeState(v);
+    setMeta('notExactMode', v);
   }
 
   async function buildAdaptiveStats() {
@@ -102,6 +124,7 @@ export function useGameState() {
     setRecentResults([]);
     setConsecutiveResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     const cold = checkColdStart();
     setIsColdStart(cold);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
@@ -114,6 +137,7 @@ export function useGameState() {
     setTrialIndex(0);
     setRecentResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
@@ -127,6 +151,7 @@ export function useGameState() {
     setRecentResults([]);
     setConsecutiveResults([]);
     setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
     if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
     setScreen('trial');
@@ -138,14 +163,24 @@ export function useGameState() {
     const notes = (sessType === 'drill' && drillNotesRef.current)
       ? drillNotesRef.current
       : LEVEL_NOTES[level] || CHROMAS;
+    // Ensure response window bounds in case of unexpected state before trial generated
+    let currentWindowMs = responseWindowMs;
+    const { minMs, maxMs } = getWindowBounds(level);
+    currentWindowMs = clamp(currentWindowMs, minMs, maxMs);
+    if (currentWindowMs !== responseWindowMs) {
+      setResponseWindowMs(currentWindowMs);
+      setMeta('responseWindowMs', currentWindowMs);
+    }
+
     const trial = generateTrial({
       activeNotes: notes,
       level,
       instrumentId: inst,
       trialIndexInSession: idx,
-      confusionMatrix: matrixStore.current.all,
+      confusionMatrix: matrixStore.current.instruments[inst] || matrixStore.current.all,
       sessionType: sessType,
       adaptiveStats: adaptiveStatsRef.current,
+      responseWindowMs: currentWindowMs,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
@@ -154,19 +189,31 @@ export function useGameState() {
     const startMs = await playTrial(trial);
     setAudioStartMs(startMs);
     setShowConfidenceOverlay(false);
+    setShowDirectionOverlay(false);
     setSecondInstinctPrompt(false);
     setPendingGuess(null);
   }
 
   function handleNotePress(chroma) {
     if (screen !== 'trial') return;
-    if (showConfidenceOverlay) return;
+    if (showConfidenceOverlay || showDirectionOverlay) return;
     const latencyMs = Date.now() - audioStartMs;
     if (latencyMs > currentTrial.responseWindowMs) {
       // Already timed out — ignore late presses
       return;
     }
     setPendingGuess({ chroma, latencyMs });
+    if (notExactModeState && currentTrial.stimType === 'detuned') {
+      setShowDirectionOverlay(true);
+    } else {
+      setShowConfidenceOverlay(true);
+    }
+  }
+
+  function handleDirectionPress(direction) {
+    if (!pendingGuess) return;
+    setPendingGuess(prev => ({ ...prev, direction }));
+    setShowDirectionOverlay(false);
     setShowConfidenceOverlay(true);
   }
 
@@ -184,8 +231,9 @@ export function useGameState() {
   async function submitGuess(chroma, latencyMs, confidence) {
     const trial = currentTrial;
     const isTimeout = chroma === '__timeout__';
+    const isDirectionTested = notExactModeState && trial.stimType === 'detuned';
     const correct = !isTimeout && chroma === trial.targetChroma &&
-      (notExactMode ? pendingGuess?.direction === trial.centDirection : true);
+      (isDirectionTested ? pendingGuess?.direction === trial.centDirection : true);
 
     if (!correct && !isTimeout && confidence === 'low') {
       // Need second instinct prompt
@@ -213,7 +261,9 @@ export function useGameState() {
       isTimeout ? trial.targetChroma : chroma,  // timeout counts as wrong
       correct,
       confidence === 'high',
-      isSine
+      isSine,
+      latencyMs,
+      trial.instrument
     );
 
     // Fatigue check
@@ -250,6 +300,27 @@ export function useGameState() {
     lastTrialTime.current = Date.now();
     setMeta('lastTrialTime', Date.now());
 
+    // Timing staircase update
+    if (trialIndex >= WARMUP_TRIALS && trial.sessionType !== 'drill') {
+      const { minMs, maxMs } = getWindowBounds(level);
+      if (!correct || isTimeout) {
+        setConsecutiveCorrectTiming(0);
+        const newWindow = clamp(responseWindowMs + WINDOW_STEP_UP_MS, minMs, maxMs);
+        setResponseWindowMs(newWindow);
+        setMeta('responseWindowMs', newWindow);
+      } else {
+        const nextCorrectCount = consecutiveCorrectTiming + 1;
+        if (nextCorrectCount >= 2) {
+          setConsecutiveCorrectTiming(0);
+          const newWindow = clamp(responseWindowMs - WINDOW_STEP_DOWN_MS, minMs, maxMs);
+          setResponseWindowMs(newWindow);
+          setMeta('responseWindowMs', newWindow);
+        } else {
+          setConsecutiveCorrectTiming(nextCorrectCount);
+        }
+      }
+    }
+
     // Persist trial
     const trialLog = {
       is_cold_start: trial.isColdStart || false,
@@ -265,7 +336,7 @@ export function useGameState() {
       tonal_context_flag: false,
       attention_cue: 'none',
       user_guess: isTimeout ? 'TIMEOUT' : chroma,
-      user_guess_direction: 'none',
+      user_guess_direction: pendingGuess?.direction || 'none',
       confidence,
       latency_ms: latencyMs,
       result_bool: correct,
@@ -277,6 +348,7 @@ export function useGameState() {
       session_type: trial.sessionType,
       drill_mode_flag: trial.sessionType === 'drill',
       drill_notes: trial.sessionType === 'drill' ? drillNotesRef.current : null,
+      response_window_ms: trial.responseWindowMs,
       notes: '',
     };
     await saveTrial(trialLog);
@@ -293,6 +365,9 @@ export function useGameState() {
       isTimeout,
       confidence,
       neighbors: topPairs,
+      guessDirection: pendingGuess?.direction,
+      targetDirection: trial.centDirection,
+      wasDirectionTested: notExactModeState && trial.stimType === 'detuned',
     });
 
     setScreen('feedback');
@@ -356,9 +431,10 @@ export function useGameState() {
     sessionFatigue,
     streak,
     activeNotes,
-    notExactMode, setNotExactMode,
+    notExactMode: notExactModeState, setNotExactMode,
     adaptiveMode, setAdaptiveMode,
     showConfidenceOverlay,
+    showDirectionOverlay,
     pendingGuess,
     consecutiveResults,
     matrixStore,
@@ -366,6 +442,7 @@ export function useGameState() {
     startMicro: beginMicro,
     startDrill: beginDrill,
     handleNotePress,
+    handleDirectionPress,
     handleConfidence,
     handleTimeout,
     handleSecondInstinct,

@@ -28,6 +28,8 @@ export default function App() {
         onToggleTheme={toggleTheme}
         adaptiveMode={g.adaptiveMode}
         onToggleAdaptive={() => g.setAdaptiveMode(!g.adaptiveMode)}
+        notExactMode={g.notExactMode}
+        onToggleNotExact={() => g.setNotExactMode(!g.notExactMode)}
       />
     );
   }
@@ -48,6 +50,8 @@ export default function App() {
         level={g.level}
         trialIndex={g.trialIndex}
         notExactMode={g.notExactMode}
+        showDirectionOverlay={g.showDirectionOverlay}
+        onDirectionPress={g.handleDirectionPress}
         sessionCorrect={correct}
         sessionTotal={total}
         onQuit={g.goHome}

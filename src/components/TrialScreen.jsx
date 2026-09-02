@@ -13,6 +13,8 @@ export default function TrialScreen({
   level,
   trialIndex,
   notExactMode,
+  showDirectionOverlay,
+  onDirectionPress,
   sessionCorrect,
   sessionTotal,
   onQuit,
@@ -47,14 +49,14 @@ export default function TrialScreen({
 
   // Stop timer once confidence overlay appears or second instinct appears
   useEffect(() => {
-    if (showConfidenceOverlay || secondInstinctPrompt) {
+    if (showConfidenceOverlay || secondInstinctPrompt || showDirectionOverlay) {
       clearInterval(intervalRef.current);
     }
-  }, [showConfidenceOverlay, secondInstinctPrompt]);
+  }, [showConfidenceOverlay, secondInstinctPrompt, showDirectionOverlay]);
 
   // Keyboard shortcuts for notes
   useEffect(() => {
-    if (!currentTrial || showConfidenceOverlay || secondInstinctPrompt) return;
+    if (!currentTrial || showConfidenceOverlay || secondInstinctPrompt || showDirectionOverlay) return;
 
     function handleKeyDown(e) {
       const key = e.key.toLowerCase();
@@ -70,7 +72,7 @@ export default function TrialScreen({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTrial, activeNotes, onNotePress, showConfidenceOverlay, secondInstinctPrompt]);
+  }, [currentTrial, activeNotes, onNotePress, showConfidenceOverlay, secondInstinctPrompt, showDirectionOverlay]);
 
   if (!currentTrial) return null;
 
@@ -108,16 +110,14 @@ export default function TrialScreen({
       <NoteGrid
         activeNotes={activeNotes}
         onPress={onNotePress}
-        disabled={showConfidenceOverlay}
+        disabled={showConfidenceOverlay || showDirectionOverlay}
       />
 
-      {/* TODO: direction buttons are non-functional — they fire handleNotePress with
-           '__sharp__'/'__flat__' which never matches targetChroma, always marking wrong.
-           Fix: set pendingGuess.direction here instead. See useGameState.js TODO. */}
-      {notExactMode && currentTrial.stimType === 'detuned' && (
-        <div className="direction-row">
-          <button className="dir-btn" onClick={() => onNotePress('__sharp__')}>Sharp ↑</button>
-          <button className="dir-btn" onClick={() => onNotePress('__flat__')}>Flat ↓</button>
+      {showDirectionOverlay && (
+        <div className="confidence-overlay">
+          <p>Direction?</p>
+          <button className="conf-btn high" onClick={() => onDirectionPress('sharp')}>Sharp ↑</button>
+          <button className="conf-btn low" onClick={() => onDirectionPress('flat')}>Flat ↓</button>
         </div>
       )}
 

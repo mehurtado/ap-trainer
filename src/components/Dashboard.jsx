@@ -41,6 +41,10 @@ function buildConfusionGrid(trials, filter = 'all') {
     if (filter === 'instrument' && (t.sine_wave_flag || t.noise_masked_flag || Math.abs(t.cents_offset || 0) > 0)) continue;
     if (filter === 'detuned'    && Math.abs(t.cents_offset || 0) === 0) continue;
     if (filter === 'noise'      && !t.noise_masked_flag) continue;
+    if (filter === 'cold'       && !t.is_cold_start) continue;
+    if (filter === 'drill'      && t.session_type !== 'drill') continue;
+    if (filter === 'evening'    && (t.is_cold_start || t.session_type !== 'evening')) continue;
+    if (filter === 'second_instinct' && !t.second_instinct_flag) continue;
     if (filter.startsWith('inst:') && t.instrument_id !== filter.slice(5)) continue;
     if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.target_chroma) {
       grid[t.target_chroma][t.user_guess] = (grid[t.target_chroma][t.user_guess] || 0) + 1;
@@ -55,6 +59,7 @@ function buildPerNoteStats(trials) {
   for (const c of CHROMAS) {
     stats[c] = {
       overall: { correct: 0, total: 0 },
+      rt:      { sum: 0, count: 0 },
       sine:    { correct: 0, total: 0 },
       noise:   { correct: 0, total: 0 },
       sharp:   { correct: 0, total: 0 },  // detuned sharp trials
@@ -66,6 +71,11 @@ function buildPerNoteStats(trials) {
     const s = stats[t.target_chroma];
     s.overall.total++;
     if (t.result_bool) s.overall.correct++;
+
+    if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
+      s.rt.sum += t.latency_ms;
+      s.rt.count++;
+    }
     if (t.sine_wave_flag) {
       s.sine.total++;
       if (t.result_bool) s.sine.correct++;
@@ -230,6 +240,7 @@ function PerNoteStats({ trials }) {
           <tr>
             <th className="pn-th pn-left">Note</th>
             <th className="pn-th">Overall</th>
+            <th className="pn-th">Avg RT</th>
             {hasSine  && <th className="pn-th">Sine</th>}
             {hasNoise && <th className="pn-th">Noise</th>}
             {hasSharp && <th className="pn-th">Sharp ↑</th>}
@@ -241,6 +252,11 @@ function PerNoteStats({ trials }) {
             <tr key={c}>
               <td className="pn-label">{c}</td>
               <AccCell stat={stats[c].overall} />
+              {stats[c].rt.count > 0 ? (
+                <td className="pn-cell">{Math.round(stats[c].rt.sum / stats[c].rt.count)}ms</td>
+              ) : (
+                <td className="pn-cell pn-dim">—</td>
+              )}
               {hasSine  && <AccCell stat={stats[c].sine} />}
               {hasNoise && <AccCell stat={stats[c].noise} />}
               {hasSharp && <AccCell stat={stats[c].sharp} />}
@@ -291,30 +307,84 @@ export default function Dashboard({ onBack }) {
 
   // ── Aggregate stats ──────────────────────────────────────────────────────
 
-  const totalTrials   = trials.length;
-  const correctTrials = trials.filter(t => t.result_bool).length;
-  const overallAcc    = totalTrials
-    ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+  let correctTrials = 0;
+  let sineTotal = 0;
+  let sineCorrect = 0;
+  let timeouts = 0;
+  let validRtTotal = 0;
+  let validRtSum = 0;
+  let validRtCorrTotal = 0;
+  let validRtCorrSum = 0;
+  let siTotal = 0;
+  let siCorrect = 0;
 
-  const sineTrials = trials.filter(t => t.sine_wave_flag);
-  const sineAcc    = sineTrials.length
-    ? (sineTrials.filter(t => t.result_bool).length / sineTrials.length * 100).toFixed(1) : '--';
+  for (let i = 0; i < trials.length; i++) {
+    const t = trials[i];
+    if (t.result_bool) correctTrials++;
 
-  const timeouts    = trials.filter(t => t.timeout_flag || t.user_guess === 'TIMEOUT').length;
-  const timeoutFreq = totalTrials
-    ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+    if (t.sine_wave_flag) {
+      sineTotal++;
+      if (t.result_bool) sineCorrect++;
+    }
 
-  const validRt      = trials.filter(t => typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag);
-  const avgRt        = validRt.length
-    ? Math.round(validRt.reduce((s, t) => s + t.latency_ms, 0) / validRt.length) : '--';
-  const validRtCorr  = validRt.filter(t => t.result_bool);
-  const avgRtCorrect = validRtCorr.length
-    ? Math.round(validRtCorr.reduce((s, t) => s + t.latency_ms, 0) / validRtCorr.length) : '--';
+    if (t.timeout_flag || t.user_guess === 'TIMEOUT') {
+      timeouts++;
+    }
 
-  const siTrials = trials.filter(t => t.second_instinct_flag === true);
-  const siAcc    = siTrials.length
-    ? (siTrials.filter(t => t.second_instinct_note === t.target_chroma).length / siTrials.length * 100).toFixed(1)
-    : '--';
+    if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
+      validRtTotal++;
+      validRtSum += t.latency_ms;
+      if (t.result_bool) {
+        validRtCorrTotal++;
+        validRtCorrSum += t.latency_ms;
+      }
+    }
+
+    if (t.second_instinct_flag === true) {
+      siTotal++;
+      if (t.second_instinct_note === t.target_chroma) {
+        siCorrect++;
+      }
+    }
+  }
+
+  const totalTrials = trials.length;
+  const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+  const sineAcc = sineTotal ? (sineCorrect / sineTotal * 100).toFixed(1) : '--';
+  const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+  const avgRt = validRtTotal ? Math.round(validRtSum / validRtTotal) : '--';
+  const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
+  const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
+
+  let earlyAcc = { correct: 0, total: 0 };
+  let lateAcc  = { correct: 0, total: 0 };
+
+  if (trials.length > 0) {
+    const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let sessionIdx = 0;
+    let lastTime = 0;
+
+    for (const t of sorted) {
+      const time = new Date(t.timestamp).getTime();
+      if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
+        sessionIdx = 0;
+      }
+
+      sessionIdx++;
+      lastTime = time;
+
+      if (sessionIdx <= 10) {
+        earlyAcc.total++;
+        if (t.result_bool) earlyAcc.correct++;
+      } else {
+        lateAcc.total++;
+        if (t.result_bool) lateAcc.correct++;
+      }
+    }
+  }
+
+  const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
+  const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
 
   const maxStreak = calculateMaxStreak(trials);
   const avgRtSineCorrect = calculateSineRtCorrect(trials);
@@ -389,6 +459,12 @@ export default function Dashboard({ onBack }) {
         <div className="stat-card">
           <span className="stat-value">{maxStreak}</span>
           <span className="stat-label">max streak</span>
+          <span className="stat-value">{earlyAccPct}{earlyAccPct !== '--' ? '%' : ''}</span>
+          <span className="stat-label">Early Acc (1-10)</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{lateAccPct}{lateAccPct !== '--' ? '%' : ''}</span>
+          <span className="stat-label">Late Acc (11+)</span>
         </div>
       </div>
 
@@ -397,24 +473,29 @@ export default function Dashboard({ onBack }) {
       <PerNoteStats trials={trials} />
 
       <div className="matrix-filter">
-        {['all', 'sine', 'instrument', 'detuned', 'noise'].map(f => (
-          <button
-            key={f}
-            className={`filter-btn ${matrixFilter === f ? 'active' : ''}`}
-            onClick={() => setMatrixFilter(f)}
-          >
-            {f}
-          </button>
-        ))}
         <select
           className="filter-dropdown"
-          value={matrixFilter.startsWith('inst:') ? matrixFilter : ''}
+          value={matrixFilter}
           onChange={e => setMatrixFilter(e.target.value)}
         >
-          <option value="" disabled>Per Instrument</option>
-          {INSTRUMENTS.map(inst => (
-            <option key={inst} value={`inst:${inst}`}>{inst}</option>
-          ))}
+          <optgroup label="General">
+            <option value="all">All</option>
+            <option value="sine">Sine</option>
+            <option value="instrument">Instrument</option>
+            <option value="detuned">Detuned</option>
+            <option value="noise">Noise</option>
+          </optgroup>
+          <optgroup label="Context">
+            <option value="cold">Cold Start</option>
+            <option value="drill">Drill</option>
+            <option value="evening">Evening</option>
+            <option value="second_instinct">Second Instinct</option>
+          </optgroup>
+          <optgroup label="Per Instrument">
+            {INSTRUMENTS.map(inst => (
+              <option key={inst} value={`inst:${inst}`}>{inst}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
