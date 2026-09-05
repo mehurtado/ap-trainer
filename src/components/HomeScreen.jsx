@@ -52,98 +52,110 @@ export default function HomeScreen({
 
   return (
     <div className="screen home-screen">
-      <div className="home-header">
-        <h1 className="app-title">AP Trainer</h1>
+      <header className="home-header">
+        <div className="home-brand">
+          <h1 className="app-title">AP Trainer</h1>
+          <span className="app-tagline">Absolute pitch training</span>
+        </div>
         <button className="theme-btn" aria-label="Toggle theme" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? '○' : '●'}
         </button>
-      </div>
+      </header>
 
-      <div className="stat-row">
-        <div className="stat">
-          <div className="level-selector">
-            <button className="level-arrow" aria-label="Decrease level" onClick={() => onSetLevel(Math.max(1, level - 1))} disabled={level <= 1}>‹</button>
-            <span className="stat-value">Lv {level}</span>
-            <button className="level-arrow" aria-label="Increase level" onClick={() => onSetLevel(Math.min(MAX_LEVEL, level + 1))} disabled={level >= MAX_LEVEL}>›</button>
-          </div>
-          <span className="stat-label">level</span>
-        </div>
-        <div className="stat">
-          <span className="stat-value">{streak}</span>
-          <span className="stat-label">cold start streak</span>
-        </div>
-      </div>
-
-      <div className="session-buttons">
-        <button className="session-btn primary" onClick={onStartColdStart}>
-          Cold Start
-          <span className="btn-sub">Morning · pure measurement</span>
-        </button>
-
-        <button className="session-btn" onClick={onStartEvening}>
-          Evening Session
-          <span className="btn-sub">Full training block</span>
-        </button>
-
-        <button className="session-btn micro" onClick={onStartMicro}>
-          Micro (3 trials)
-          <span className="btn-sub">Quick practice · no wipe</span>
-        </button>
-
-        <button
-          className={`session-btn micro${showDrillPicker ? ' binary-active' : ''}`}
-          onClick={showDrillPicker ? closePicker : openPicker}
-        >
-          Drill Mode
-          <span className="btn-sub">Custom subset focus · no advancement</span>
-        </button>
-
-        {showDrillPicker && (
-          <div className="binary-picker">
-            <div className="binary-picker-label">{pickerLabel}</div>
-            <div className="binary-note-grid">
-              {CHROMAS.map(note => (
-                <button
-                  key={note}
-                  className={`binary-note-btn${pickedNotes.includes(note) ? ' selected' : ''}`}
-                  onClick={() => toggleNote(note)}
-                >
-                  {note}
-                </button>
-              ))}
+      <div className="home-layout">
+        <aside className="home-side">
+          <div className="stat-row">
+            <div className="stat">
+              <div className="level-selector">
+                <button className="level-arrow" aria-label="Decrease level" onClick={() => onSetLevel(Math.max(1, level - 1))} disabled={level <= 1}>‹</button>
+                <span className="stat-value">Lv {level}</span>
+                <button className="level-arrow" aria-label="Increase level" onClick={() => onSetLevel(Math.min(MAX_LEVEL, level + 1))} disabled={level >= MAX_LEVEL}>›</button>
+              </div>
+              <span className="stat-label">level</span>
             </div>
-            {pickedNotes.length >= 2 && (
-              <button className="session-btn primary" onClick={startDrill}>
-                Start →
+            <div className="stat">
+              <span className="stat-value">{streak}</span>
+              <span className="stat-label">cold start streak</span>
+            </div>
+          </div>
+
+          <div className="mode-panel">
+            <h3 className="panel-label">Modes</h3>
+            <div className="adaptive-row">
+              <button
+                className={`adaptive-btn${adaptiveMode ? ' active' : ''}`}
+                onClick={onToggleAdaptive}
+              >
+                {adaptiveMode ? '◉' : '○'} Adaptive
               </button>
+              {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
+            </div>
+            <div className="adaptive-row">
+              <button
+                className={`adaptive-btn${notExactMode ? ' active' : ''}`}
+                onClick={onToggleNotExact}
+              >
+                {notExactMode ? '◉' : '○'} Microtonal
+              </button>
+              {notExactMode && <span className="adaptive-hint">ask direction for detuned</span>}
+            </div>
+          </div>
+
+          <div className="secondary-buttons">
+            <button className="nav-btn" onClick={onDashboard}>Dashboard</button>
+            <button className="nav-btn" onClick={onAmbient}>Ambient Log</button>
+          </div>
+        </aside>
+
+        <section className="session-panel">
+          <h2 className="panel-title">Start a session</h2>
+          <div className="session-buttons">
+            <button className="session-btn primary" onClick={onStartColdStart}>
+              Cold Start
+              <span className="btn-sub">Morning · pure measurement</span>
+            </button>
+
+            <button className="session-btn" onClick={onStartEvening}>
+              Evening Session
+              <span className="btn-sub">Full training block</span>
+            </button>
+
+            <button className="session-btn micro" onClick={onStartMicro}>
+              Micro (3 trials)
+              <span className="btn-sub">Quick practice · no wipe</span>
+            </button>
+
+            <button
+              className={`session-btn micro${showDrillPicker ? ' binary-active' : ''}`}
+              onClick={showDrillPicker ? closePicker : openPicker}
+            >
+              Drill Mode
+              <span className="btn-sub">Custom subset focus · no advancement</span>
+            </button>
+
+            {showDrillPicker && (
+              <div className="binary-picker">
+                <div className="binary-picker-label">{pickerLabel}</div>
+                <div className="binary-note-grid">
+                  {CHROMAS.map(note => (
+                    <button
+                      key={note}
+                      className={`binary-note-btn${pickedNotes.includes(note) ? ' selected' : ''}`}
+                      onClick={() => toggleNote(note)}
+                    >
+                      {note}
+                    </button>
+                  ))}
+                </div>
+                {pickedNotes.length >= 2 && (
+                  <button className="session-btn primary" onClick={startDrill}>
+                    Start →
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-
-      <div className="adaptive-row">
-        <button
-          className={`adaptive-btn${adaptiveMode ? ' active' : ''}`}
-          onClick={onToggleAdaptive}
-        >
-          {adaptiveMode ? '◉' : '○'} Adaptive
-        </button>
-        {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
-      </div>
-
-      <div className="adaptive-row">
-        <button
-          className={`adaptive-btn${notExactMode ? ' active' : ''}`}
-          onClick={onToggleNotExact}
-        >
-          {notExactMode ? '◉' : '○'} Microtonal
-        </button>
-        {notExactMode && <span className="adaptive-hint">ask direction for detuned</span>}
-      </div>
-
-      <div className="secondary-buttons">
-        <button className="nav-btn" onClick={onDashboard}>Dashboard</button>
-        <button className="nav-btn" onClick={onAmbient}>Ambient Log</button>
+        </section>
       </div>
     </div>
   );

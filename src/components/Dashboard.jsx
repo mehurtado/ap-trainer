@@ -455,9 +455,10 @@ export default function Dashboard({ onBack }) {
         </div>
       </div>
 
-      <AccuracyChart trials={trials} />
-
-      <PerNoteStats trials={trials} />
+      <div className="dash-cols">
+        <div className="dash-card"><AccuracyChart trials={trials} /></div>
+        <div className="dash-card"><PerNoteStats trials={trials} /></div>
+      </div>
 
       <div className="matrix-filter">
         <select
@@ -486,7 +487,9 @@ export default function Dashboard({ onBack }) {
         </select>
       </div>
 
-      <ConfusionMatrix grid={grid} title={`Confusion Matrix (${matrixFilter})`} />
+      <div className="dash-card">
+        <ConfusionMatrix grid={grid} title={`Confusion Matrix (${matrixFilter})`} />
+      </div>
     </div>
   );
 }

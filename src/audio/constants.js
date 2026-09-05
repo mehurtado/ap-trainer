@@ -7,12 +7,12 @@ export const CHROMA_TO_MIDI_BASE = {
 
 // Register constraints (octave range to sample from)
 export const INSTRUMENT_REGISTERS = {
-  piano:   { min: 2, max: 7 },
-  guitar:  { min: 2, max: 6 },
-  harp:    { min: 2, max: 6 },
-  trumpet: { min: 3, max: 6 },
-  violin:  { min: 3, max: 7 },
-  bass:    { min: 1, max: 4 },
+  piano:   { min: 3, max: 6 },
+  guitar:  { min: 3, max: 6 },
+  harp:    { min: 3, max: 6 },
+  trumpet: { min: 4, max: 6 },
+  violin:  { min: 4, max: 6 },
+  bass:    { min: 2, max: 4 },
 };
 
 export const INSTRUMENTS = Object.keys(INSTRUMENT_REGISTERS);

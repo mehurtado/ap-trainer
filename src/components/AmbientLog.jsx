@@ -32,6 +32,7 @@ export default function AmbientLog({ onBack }) {
         <h2>Ambient Log</h2>
       </div>
 
+      <div className="ambient-layout">
       <form className="ambient-form" onSubmit={handleSubmit}>
         <input placeholder="Sound source (e.g. car horn, microwave)"
           value={form.sound_source} onChange={e => setForm({ ...form, sound_source: e.target.value })} required />
@@ -83,6 +84,7 @@ export default function AmbientLog({ onBack }) {
             <span className="ambient-mode">{entry.identification_mode}</span>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
