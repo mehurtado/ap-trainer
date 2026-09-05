@@ -286,98 +286,126 @@ export default function Dashboard({ onBack }) {
 
   // ── Aggregate stats ──────────────────────────────────────────────────────
 
-  let correctTrials = 0;
-  let sineTotal = 0;
-  let sineCorrect = 0;
-  let timeouts = 0;
-  let validRtTotal = 0;
-  let validRtSum = 0;
-  let validRtCorrTotal = 0;
-  let validRtCorrSum = 0;
-  let siTotal = 0;
-  let siCorrect = 0;
+  const {
+    totalTrials,
+    overallAcc,
+    sineAcc,
+    timeoutFreq,
+    avgRt,
+    avgRtCorrect,
+    siAcc,
+    earlyAccPct,
+    lateAccPct,
+    falsePositiveRate,
+    falseNegativeRate,
+  } = useMemo(() => {
+    let correctTrials = 0;
+    let sineTotal = 0;
+    let sineCorrect = 0;
+    let timeouts = 0;
+    let validRtTotal = 0;
+    let validRtSum = 0;
+    let validRtCorrTotal = 0;
+    let validRtCorrSum = 0;
+    let siTotal = 0;
+    let siCorrect = 0;
 
-  for (let i = 0; i < trials.length; i++) {
-    const t = trials[i];
-    if (t.result_bool) correctTrials++;
+    for (let i = 0; i < trials.length; i++) {
+      const t = trials[i];
+      if (t.result_bool) correctTrials++;
 
-    if (t.sine_wave_flag) {
-      sineTotal++;
-      if (t.result_bool) sineCorrect++;
-    }
+      if (t.sine_wave_flag) {
+        sineTotal++;
+        if (t.result_bool) sineCorrect++;
+      }
 
-    if (t.timeout_flag || t.user_guess === 'TIMEOUT') {
-      timeouts++;
-    }
+      if (t.timeout_flag || t.user_guess === 'TIMEOUT') {
+        timeouts++;
+      }
 
-    if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
-      validRtTotal++;
-      validRtSum += t.latency_ms;
-      if (t.result_bool) {
-        validRtCorrTotal++;
-        validRtCorrSum += t.latency_ms;
+      if (typeof t.latency_ms === 'number' && t.latency_ms > 0 && !t.timeout_flag) {
+        validRtTotal++;
+        validRtSum += t.latency_ms;
+        if (t.result_bool) {
+          validRtCorrTotal++;
+          validRtCorrSum += t.latency_ms;
+        }
+      }
+
+      if (t.second_instinct_flag === true) {
+        siTotal++;
+        if (t.is_out_of_set ? t.second_instinct_note === 'OTHER' : t.second_instinct_note === t.target_chroma) {
+          siCorrect++;
+        }
       }
     }
 
-    if (t.second_instinct_flag === true) {
-      siTotal++;
-      if (t.is_out_of_set ? t.second_instinct_note === 'OTHER' : t.second_instinct_note === t.target_chroma) {
-        siCorrect++;
+    const totalTrials = trials.length;
+    const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
+    const sineAcc = sineTotal ? (sineCorrect / sineTotal * 100).toFixed(1) : '--';
+    const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
+    const avgRt = validRtTotal ? Math.round(validRtSum / validRtTotal) : '--';
+    const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
+    const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
+
+    let earlyAcc = { correct: 0, total: 0 };
+    let lateAcc  = { correct: 0, total: 0 };
+
+    if (trials.length > 0) {
+      const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      let sessionIdx = 0;
+      let lastTime = 0;
+
+      for (const t of sorted) {
+        const time = new Date(t.timestamp).getTime();
+        if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
+          sessionIdx = 0;
+        }
+
+        sessionIdx++;
+        lastTime = time;
+
+        if (sessionIdx <= 10) {
+          earlyAcc.total++;
+          if (t.result_bool) earlyAcc.correct++;
+        } else {
+          lateAcc.total++;
+          if (t.result_bool) lateAcc.correct++;
+        }
       }
     }
-  }
 
-  const totalTrials = trials.length;
-  const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
-  const sineAcc = sineTotal ? (sineCorrect / sineTotal * 100).toFixed(1) : '--';
-  const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
-  const avgRt = validRtTotal ? Math.round(validRtSum / validRtTotal) : '--';
-  const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
-  const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
+    const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
+    const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
 
-  let earlyAcc = { correct: 0, total: 0 };
-  let lateAcc  = { correct: 0, total: 0 };
+    // false-positive: out-of-set trial where the user pressed an active-set
+    // button instead of Other (spec §8, exact wording)
+    const outOfSetTrials = trials.filter(t => t.is_out_of_set === true);
+    const falsePositiveCount = outOfSetTrials.filter(t => t.user_guess !== 'OTHER' && t.user_guess !== 'TIMEOUT').length;
+    const falsePositiveRate  = outOfSetTrials.length
+      ? (falsePositiveCount / outOfSetTrials.length * 100).toFixed(1) : '--';
 
-  if (trials.length > 0) {
-    const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    let sessionIdx = 0;
-    let lastTime = 0;
+    // false-negative / missed-rejection: in-set trial where the user pressed
+    // Other instead of the correct note (spec §8, exact wording)
+    const inSetTrials = trials.filter(t => t.is_out_of_set === false);
+    const falseNegativeCount = inSetTrials.filter(t => t.user_guess === 'OTHER').length;
+    const falseNegativeRate  = inSetTrials.length
+      ? (falseNegativeCount / inSetTrials.length * 100).toFixed(1) : '--';
 
-    for (const t of sorted) {
-      const time = new Date(t.timestamp).getTime();
-      if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
-        sessionIdx = 0;
-      }
-
-      sessionIdx++;
-      lastTime = time;
-
-      if (sessionIdx <= 10) {
-        earlyAcc.total++;
-        if (t.result_bool) earlyAcc.correct++;
-      } else {
-        lateAcc.total++;
-        if (t.result_bool) lateAcc.correct++;
-      }
-    }
-  }
-
-  const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
-  const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
-
-  // false-positive: out-of-set trial where the user pressed an active-set
-  // button instead of Other (spec §8, exact wording)
-  const outOfSetTrials = trials.filter(t => t.is_out_of_set === true);
-  const falsePositiveCount = outOfSetTrials.filter(t => t.user_guess !== 'OTHER' && t.user_guess !== 'TIMEOUT').length;
-  const falsePositiveRate  = outOfSetTrials.length
-    ? (falsePositiveCount / outOfSetTrials.length * 100).toFixed(1) : '--';
-
-  // false-negative / missed-rejection: in-set trial where the user pressed
-  // Other instead of the correct note (spec §8, exact wording)
-  const inSetTrials = trials.filter(t => t.is_out_of_set === false);
-  const falseNegativeCount = inSetTrials.filter(t => t.user_guess === 'OTHER').length;
-  const falseNegativeRate  = inSetTrials.length
-    ? (falseNegativeCount / inSetTrials.length * 100).toFixed(1) : '--';
+    return {
+      totalTrials,
+      overallAcc,
+      sineAcc,
+      timeoutFreq,
+      avgRt,
+      avgRtCorrect,
+      siAcc,
+      earlyAccPct,
+      lateAccPct,
+      falsePositiveRate,
+      falseNegativeRate,
+    };
+  }, [trials]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
