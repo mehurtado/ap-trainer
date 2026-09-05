@@ -200,6 +200,9 @@ export function useGameState() {
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
     trial.activeSetSize = notes.length;
+    // Reset audio onset before the new trial renders so the response-window
+    // timer (keyed on audioStartMs) doesn't start from a stale previous value.
+    setAudioStartMs(0);
     setCurrentTrial(trial);
 
     const startMs = await playTrial(trial);
@@ -465,6 +468,7 @@ export function useGameState() {
     showConfidenceOverlay,
     showDirectionOverlay,
     pendingGuess,
+    audioStartMs,
     consecutiveResults,
     matrixStore,
     startSession: beginSession,

@@ -40,6 +40,7 @@ export default function App() {
     return (
       <TrialScreen
         currentTrial={g.currentTrial}
+        audioStartMs={g.audioStartMs}
         activeNotes={g.activeNotes}
         onNotePress={g.handleNotePress}
         onTimeout={g.handleTimeout}

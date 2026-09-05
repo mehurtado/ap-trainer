@@ -3,6 +3,7 @@ import NoteGrid from './NoteGrid.jsx';
 
 export default function TrialScreen({
   currentTrial,
+  audioStartMs,
   activeNotes,
   onNotePress,
   onTimeout,
@@ -26,9 +27,14 @@ export default function TrialScreen({
 
   useEffect(() => {
     if (!currentTrial) return;
+    // Wait until the stimulus actually starts sounding. The response window
+    // must be measured from audio onset (matching handleNotePress), otherwise
+    // pre-audio latency (e.g. AudioContext resume) eats into the time the user
+    // has to click, making it near-impossible to respond in time.
+    if (!audioStartMs) return;
     didTimeout.current = false;
     const windowMs = currentTrial.responseWindowMs || 1500;
-    const start = Date.now();
+    const start = audioStartMs;
 
     setTimeLeft(100);
     clearInterval(intervalRef.current);
@@ -45,7 +51,7 @@ export default function TrialScreen({
     }, 50);
 
     return () => clearInterval(intervalRef.current);
-  }, [currentTrial]);
+  }, [currentTrial, audioStartMs]);
 
   // Stop timer once confidence overlay appears or second instinct appears
   useEffect(() => {
