@@ -279,7 +279,7 @@ export function useGameState() {
     setConsecutiveResults(prev => [...prev, correct]);
 
     setProgressionFeedback({ correct, guess: chroma, target: prog.tonic, quality: prog.quality });
-    setScreen('feedback');
+    setScreen('progression-feedback');
   }
 
   function proceedProgressionAfterFeedback() {

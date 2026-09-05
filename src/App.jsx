@@ -84,15 +84,16 @@ export default function App() {
     );
   }
 
+  if (g.screen === 'progression-feedback') {
+    return (
+      <ProgressionFeedback
+        feedback={g.progressionFeedback}
+        onContinue={g.proceedProgressionAfterFeedback}
+      />
+    );
+  }
+
   if (g.screen === 'feedback') {
-    if (g.progressionFeedback) {
-      return (
-        <ProgressionFeedback
-          feedback={g.progressionFeedback}
-          onContinue={g.proceedProgressionAfterFeedback}
-        />
-      );
-    }
     return (
       <FeedbackScreen
         feedback={g.feedback}
