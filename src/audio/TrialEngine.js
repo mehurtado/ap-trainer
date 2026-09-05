@@ -5,20 +5,33 @@ import {
 import { audioEngine } from './AudioEngine.js';
 import { pickMasteryWeighted } from './AdaptiveStats.js';
 
+// Internal helper function
+function secureRandom() {
+  const arr = new Uint32Array(1);
+  const cryptoObj = typeof window !== 'undefined' ? window.crypto : crypto;
+  cryptoObj.getRandomValues(arr);
+  return arr[0] / (0xffffffff + 1);
+}
+
+// Export a mutable wrapper specifically for testing
+export const mathRandomReplacement = {
+  random: secureRandom
+};
+
 // Picks a random integer in [min, max] inclusive
 function randInt(min, max) {
-  return min + Math.floor(Math.random() * (max - min + 1));
+  return min + Math.floor(mathRandomReplacement.random() * (max - min + 1));
 }
 
 function randChoice(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(mathRandomReplacement.random() * arr.length)];
 }
 
 // Overall mix: 40% sine, 12% detuned, 6% noise, 42% clean instrument.
 // Drill sessions bypass detuned and noise entirely (always clean instrument).
 function pickStimulusType(isDrill = false) {
   if (isDrill) return 'instrument';
-  const roll = Math.random();
+  const roll = mathRandomReplacement.random();
   if (roll < 0.40) return 'sine';
   if (roll < 0.52) return 'detuned';
   if (roll < 0.58) return 'noise';
@@ -39,7 +52,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
   const k = activeNotes.length;
   const canGoOutOfSet = k < CHROMAS.length;
   const pOut = canGoOutOfSet ? 1 / (k + 1) : 0;
-  const isOutOfSet = canGoOutOfSet && Math.random() < pOut;
+  const isOutOfSet = canGoOutOfSet && mathRandomReplacement.random() < pOut;
 
   let targetChroma;
   if (isOutOfSet) {
@@ -79,12 +92,12 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
       centDirection = adaptiveStats.pickDetunedDirection(targetChroma);
       centOffset = centDirection === 'sharp' ? magnitude : -magnitude;
     } else {
-      centOffset = magnitude * (Math.random() < 0.5 ? 1 : -1);
+      centOffset = magnitude * (mathRandomReplacement.random() < 0.5 ? 1 : -1);
       centDirection = centOffset > 0 ? 'sharp' : 'flat';
     }
   }
 
-  const noiseType = Math.random() < 0.5 ? 'white' : 'pink';
+  const noiseType = mathRandomReplacement.random() < 0.5 ? 'white' : 'pink';
 
   return {
     targetChroma,
@@ -142,7 +155,7 @@ export function adversarialPick(activeNotes, confusionMatrix, trialIndexInSessio
   // Cold start: first 10 trials pure random
   if (trialIndexInSession < 10) return randChoice(activeNotes);
 
-  const roll = Math.random();
+  const roll = mathRandomReplacement.random();
   if (roll < 0.40) {
     return neighborAttack(activeNotes, confusionMatrix);
   } else if (roll < 0.70) {
