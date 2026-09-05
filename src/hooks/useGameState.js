@@ -54,6 +54,7 @@ export function useGameState() {
   const [currentProgression, setCurrentProgression] = useState(null);
   const [audioEndMs, setAudioEndMs] = useState(0);
   const [progressionFeedback, setProgressionFeedback] = useState(null);
+  const [progressionPlaying, setProgressionPlaying] = useState(false);
   const [responseWindowMs, setResponseWindowMs] = useState(1500);
   const [consecutiveCorrectTiming, setConsecutiveCorrectTiming] = useState(0);
 
@@ -63,6 +64,8 @@ export function useGameState() {
   const drillNotesRef = useRef(null);
   const adaptiveStatsRef = useRef(null);
   const perNoteAccuracyRef = useRef({});
+  const progressionPlayingRef = useRef(false);
+  const progressionPlayTimer = useRef(null);
 
   // Load persisted level and streak on mount
   useEffect(() => {
@@ -202,10 +205,13 @@ export function useGameState() {
     // Preload piano samples so the first progression starts on time.
     audioEngine.preloadInstrument('piano');
     setScreen('progression');
-    launchProgressionTrial(0);
+    launchProgressionTrial();
   }
 
   async function launchProgressionTrial() {
+    clearTimeout(progressionPlayTimer.current);
+    progressionPlayingRef.current = false;
+    setProgressionPlaying(false);
     const notes = LEVEL_NOTES[level] || CHROMAS;
     setActiveNotes(notes);
     const prog = generateProgression({ activeNotes: notes, level });
@@ -215,9 +221,16 @@ export function useGameState() {
   }
 
   async function playProgressionAgain() {
-    if (!currentProgression) return;
+    if (!currentProgression || progressionPlayingRef.current) return;
+    progressionPlayingRef.current = true;
+    setProgressionPlaying(true);
     const endMs = await playProgression(currentProgression);
     setAudioEndMs(endMs);
+    clearTimeout(progressionPlayTimer.current);
+    progressionPlayTimer.current = setTimeout(() => {
+      progressionPlayingRef.current = false;
+      setProgressionPlaying(false);
+    }, Math.max(0, endMs - Date.now()));
   }
 
   function handleProgressionGuess(chroma) {
@@ -297,7 +310,7 @@ export function useGameState() {
         wipeTimer.current = null;
         const nextIdx = trialIndex + 1;
         setTrialIndex(nextIdx);
-        launchProgressionTrial(nextIdx);
+        launchProgressionTrial();
         setScreen('progression');
       }
     }, 100);
@@ -579,6 +592,9 @@ export function useGameState() {
 
   function goHome() {
     if (wipeTimer.current) clearInterval(wipeTimer.current);
+    clearTimeout(progressionPlayTimer.current);
+    progressionPlayingRef.current = false;
+    setProgressionPlaying(false);
     audioEngine.stop();
     setScreen('home');
   }
@@ -613,6 +629,7 @@ export function useGameState() {
     currentProgression,
     audioEndMs,
     progressionFeedback,
+    progressionPlaying,
     playProgressionAgain,
     handleProgressionGuess,
     proceedProgressionAfterFeedback,

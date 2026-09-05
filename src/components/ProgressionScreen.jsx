@@ -6,6 +6,7 @@ export default function ProgressionScreen({
   activeNotes,
   onGuess,
   onPlayAgain,
+  isPlaying,
   onQuit,
   level,
   trialIndex,
@@ -32,10 +33,10 @@ export default function ProgressionScreen({
 
       <div className="progression-info">
         <span className="progression-label">Identify the key</span>
-        <button className="play-again-btn" onClick={onPlayAgain}>▶ Play again</button>
+        <button className="play-again-btn" onClick={onPlayAgain} disabled={isPlaying}>▶ Play again</button>
       </div>
 
-      <NoteGrid activeNotes={activeNotes} onPress={onGuess} showOther={false} />
+      <NoteGrid activeNotes={activeNotes} onPress={onGuess} showOther={false} disabled={isPlaying} />
     </div>
   );
 }

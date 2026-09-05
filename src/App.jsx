@@ -74,6 +74,7 @@ export default function App() {
         activeNotes={g.activeNotes}
         onGuess={g.handleProgressionGuess}
         onPlayAgain={g.playProgressionAgain}
+        isPlaying={g.progressionPlaying}
         onQuit={g.goHome}
         level={g.level}
         trialIndex={g.trialIndex}

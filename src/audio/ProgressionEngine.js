@@ -2,57 +2,88 @@ import { CHROMAS } from './constants.js';
 import { audioEngine } from './AudioEngine.js';
 
 // Semitone offsets from the tonic for each scale degree (0-indexed).
-// Major = I ii iii IV V vi vii°, Minor = i ii° III iv v VI VII (natural minor).
 const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
 const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
 
-// Common scale degrees (1-indexed) used in the middle of a progression.
-// Degree 1 (the tonic chord) is forced at the start and end so the key is
-// clearly anchored regardless of major/minor quality.
-const MAJOR_MIDDLE = [4, 5, 6, 2, 3, 1];
-const MINOR_MIDDLE = [6, 3, 7, 4, 5, 1];
+// Semitone offsets from a chord's own root, by quality.
+export const QUALITIES = {
+  m7:       [0, 3, 7, 10],
+  m9:       [0, 3, 7, 10, 14],
+  maj7:     [0, 4, 7, 11],
+  maj9:     [0, 4, 7, 11, 14],
+  dom7:     [0, 4, 7, 10],
+  dom9:     [0, 4, 7, 10, 14],
+  halfDim7: [0, 3, 6, 10],   // m7♭5 / ø7
+  dom7b5:   [0, 4, 6, 10],   // altered dominant
+};
 
-function randInt(min, max) {
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
+// A fixed set of 4 major + 4 minor progressions (curated, not randomly
+// generated) so every trial is a recognizable, idiomatic progression rather
+// than an arbitrary scale-degree walk. Each chord is { degree, quality }:
+// `degree` (1-indexed) picks the chord root off the key's scale; `quality`
+// is normally the plain diatonic 7th chord built on that degree, but two
+// entries deliberately override it with a chromatic/altered quality for the
+// jazz ii–V sound — those are commented at the point of use.
+const MAJOR_PROGRESSIONS = [
+  // I gains a 9th, V a 9th — "Axis" progression, jazzed.
+  [{ degree: 1, quality: 'maj9' }, { degree: 5, quality: 'dom9' }, { degree: 6, quality: 'm7' }, { degree: 4, quality: 'maj7' }, { degree: 1, quality: 'maj7' }],
+  // "50s progression" / doo-wop, jazzed.
+  [{ degree: 1, quality: 'maj7' }, { degree: 6, quality: 'm9' }, { degree: 4, quality: 'maj7' }, { degree: 5, quality: 'dom7' }, { degree: 1, quality: 'maj7' }],
+  // Plain authentic cadence — unaltered anchor progression.
+  [{ degree: 1, quality: 'maj7' }, { degree: 4, quality: 'maj7' }, { degree: 5, quality: 'dom7' }, { degree: 1, quality: 'maj7' }],
+  // "Autumn Leaves"-style turnaround: viiø7 (=ii of the relative minor) into
+  // V7♭5/vi (secondary dominant of vi — root shares degree 3's pitch, but
+  // it's functioning as an altered V/vi, not a plain iii chord; the raised
+  // 3rd and flat 5 make this chromatic, not diatonic), resolving to vi
+  // before the ii–V–I turnaround back to the true tonic.
+  [{ degree: 1, quality: 'maj7' }, { degree: 7, quality: 'halfDim7' }, { degree: 3, quality: 'dom7b5' }, { degree: 6, quality: 'm7' }, { degree: 2, quality: 'm7' }, { degree: 5, quality: 'dom9' }, { degree: 1, quality: 'maj7' }],
+];
+
+const MINOR_PROGRESSIONS = [
+  // All diatonic to natural minor — no borrowed/altered tones.
+  [{ degree: 1, quality: 'm7' }, { degree: 6, quality: 'maj7' }, { degree: 3, quality: 'maj7' }, { degree: 7, quality: 'dom9' }, { degree: 1, quality: 'm7' }],
+  // Textbook minor ii–V–i. Natural minor's v is diatonically minor (m7);
+  // making it a dominant with a ♭5 requires raising the 3rd (borrowed from
+  // harmonic minor) and flatting the 5th — both chromatic, by design.
+  [{ degree: 1, quality: 'm9' }, { degree: 2, quality: 'halfDim7' }, { degree: 5, quality: 'dom7b5' }, { degree: 1, quality: 'm7' }],
+  // All diatonic to natural minor.
+  [{ degree: 1, quality: 'm7' }, { degree: 7, quality: 'dom9' }, { degree: 6, quality: 'maj7' }, { degree: 7, quality: 'dom9' }, { degree: 1, quality: 'm7' }],
+  // All diatonic to natural minor.
+  [{ degree: 1, quality: 'm7' }, { degree: 4, quality: 'm7' }, { degree: 7, quality: 'dom9' }, { degree: 3, quality: 'maj9' }, { degree: 1, quality: 'm7' }],
+];
 
 function randChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// Build a triad (3 chromas) for a 1-indexed scale degree of a key.
-function triadForDegree(tonicIdx, scale, degree) {
-  const root  = (tonicIdx + scale[(degree - 1) % 7]) % 12;
-  const third = (tonicIdx + scale[(degree - 1 + 2) % 7]) % 12;
-  const fifth = (tonicIdx + scale[(degree - 1 + 4) % 7]) % 12;
-  return [CHROMAS[root], CHROMAS[third], CHROMAS[fifth]];
+// Build the chord tones (chromas) for one { degree, quality } entry in a key.
+export function buildChord(tonicIdx, scale, entry) {
+  const root = (tonicIdx + scale[(entry.degree - 1) % 7]) % 12;
+  return QUALITIES[entry.quality].map(interval => CHROMAS[(root + interval) % 12]);
 }
 
-// Generates a chord-progression trial. The tonic is drawn from `activeNotes`
-// (the level's unlocked set), and the quality (major/minor) is mixed in
-// without affecting the answer options — E major and E minor both answer E.
+// Generates a chord-progression trial by picking one of the fixed major or
+// minor progressions and transposing it to a tonic drawn from `activeNotes`
+// (the level's unlocked set). Quality (major/minor) is mixed in without
+// affecting the answer options — a major-key and minor-key trial in the
+// same tonic both answer with that tonic chroma.
 export function generateProgression({ activeNotes, level }) {
   const quality = Math.random() < 0.5 ? 'major' : 'minor';
   const scale = quality === 'major' ? MAJOR_SCALE : MINOR_SCALE;
-  const middlePool = quality === 'major' ? MAJOR_MIDDLE : MINOR_MIDDLE;
+  const progression = randChoice(quality === 'major' ? MAJOR_PROGRESSIONS : MINOR_PROGRESSIONS);
 
   const tonic = randChoice(activeNotes);
   const tonicIdx = CHROMAS.indexOf(tonic);
 
-  // 3–6 chords, always starting and ending on the tonic chord.
-  const length = randInt(3, 6);
-  const degrees = [1];
-  for (let i = 0; i < length - 2; i++) degrees.push(randChoice(middlePool));
-  degrees.push(1);
-
-  const chords = degrees.map(d => triadForDegree(tonicIdx, scale, d));
+  const chords = progression.map(entry => buildChord(tonicIdx, scale, entry));
+  const degrees = progression.map(entry => entry.degree);
 
   return {
     tonic,
     quality,
     degrees,
     chords,
-    length,
+    length: chords.length,
     activeSetSize: activeNotes.length,
     level,
   };
