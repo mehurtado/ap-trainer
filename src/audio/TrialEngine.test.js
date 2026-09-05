@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { generateTrial, adversarialPick } from './TrialEngine.js';
+import { generateTrial, adversarialPick, mathRandomReplacement } from './TrialEngine.js';
 import { ConfusionMatrix } from './ConfusionMatrix.js';
 import { CHROMAS } from './constants.js';
 
@@ -58,7 +58,7 @@ test('generateTrial samples from the complement when forced out-of-set', (t) => 
   const activeNotes = ['C', 'E', 'G']; // k=3, pOut=0.25, complement has 9 notes
   let call = 0;
   const seq = [0.01, 0.5]; // [0]=isOutOfSet roll (forces true), [1]=complement index pick
-  t.mock.method(Math, 'random', () => seq[call++] ?? 0.9);
+  t.mock.method(mathRandomReplacement, 'random', () => seq[call++] ?? 0.9);
   const trial = generateTrial({ activeNotes, level: 1, instrumentId: 'piano',
     trialIndexInSession: 0, confusionMatrix: new ConfusionMatrix(), sessionType: 'evening' });
   assert.strictEqual(trial.isOutOfSet, true);
