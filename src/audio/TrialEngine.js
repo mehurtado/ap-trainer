@@ -28,7 +28,7 @@ function pickStimulusType(isDrill = false) {
 // Generates the next trial spec given active notes and level.
 // When adaptiveStats is provided it drives all selection dimensions;
 // otherwise falls back to adversarial pick at level 12 or uniform random.
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs, perNoteAccuracy = {} }) {
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs, perNoteAccuracy = {}, noiseScramble = false }) {
   const isDrill = sessionType === 'drill';
 
   // ── Chroma ────────────────────────────────────────────────────────────────
@@ -63,9 +63,12 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
     : randInt(reg.min, reg.max);
 
   // ── Stimulus type ─────────────────────────────────────────────────────────
-  const stimType = adaptiveStats
+  let stimType = adaptiveStats
     ? adaptiveStats.pickStimType(targetChroma, isDrill)
     : pickStimulusType(isDrill);
+
+  // Noise Scramble toggle: force every trial to be a noise-masked note.
+  if (noiseScramble) stimType = 'noise';
 
   // ── Detuned params ────────────────────────────────────────────────────────
   let centOffset = 0;

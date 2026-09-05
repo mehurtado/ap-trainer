@@ -20,6 +20,8 @@ export default function HomeScreen({
   onToggleAdaptive,
   notExactMode,
   onToggleNotExact,
+  noiseScrambleMode,
+  onToggleNoiseScramble,
 }) {
   const [showDrillPicker, setShowDrillPicker] = useState(false);
   const [pickedNotes, setPickedNotes] = useState([]);
@@ -99,6 +101,15 @@ export default function HomeScreen({
                 {notExactMode ? '◉' : '○'} Microtonal
               </button>
               {notExactMode && <span className="adaptive-hint">ask direction for detuned</span>}
+            </div>
+            <div className="adaptive-row">
+              <button
+                className={`adaptive-btn${noiseScrambleMode ? ' active' : ''}`}
+                onClick={onToggleNoiseScramble}
+              >
+                {noiseScrambleMode ? '◉' : '○'} Noise Scramble
+              </button>
+              {noiseScrambleMode && <span className="adaptive-hint">every note under noise</span>}
             </div>
           </div>
 

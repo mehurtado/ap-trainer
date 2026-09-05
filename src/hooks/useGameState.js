@@ -50,6 +50,7 @@ export function useGameState() {
   const [notExactModeState, setNotExactModeState] = useState(false);
   const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
   const [adaptiveMode, setAdaptiveModeState] = useState(false);
+  const [noiseScrambleModeState, setNoiseScrambleModeState] = useState(false);
   const [currentProgression, setCurrentProgression] = useState(null);
   const [audioEndMs, setAudioEndMs] = useState(0);
   const [progressionFeedback, setProgressionFeedback] = useState(null);
@@ -70,6 +71,7 @@ export function useGameState() {
     getMeta('lastTrialTime').then(v => { if (v) lastTrialTime.current = v; });
     getMeta('adaptiveMode').then(v => { if (v != null) setAdaptiveModeState(v); });
     getMeta('notExactMode').then(v => { if (v != null) setNotExactModeState(v); });
+    getMeta('noiseScrambleMode').then(v => { if (v != null) setNoiseScrambleModeState(v); });
     getMeta('responseWindowMs').then(v => { if (v != null) setResponseWindowMs(v); });
   }, []);
 
@@ -99,6 +101,11 @@ export function useGameState() {
   function setNotExactMode(v) {
     setNotExactModeState(v);
     setMeta('notExactMode', v);
+  }
+
+  function setNoiseScrambleMode(v) {
+    setNoiseScrambleModeState(v);
+    setMeta('noiseScrambleMode', v);
   }
 
   // Runs once per session start, always (see Decision C: perNoteAccuracy must
@@ -298,6 +305,7 @@ export function useGameState() {
       adaptiveStats: adaptiveStatsRef.current,
       responseWindowMs: currentWindowMs,
       perNoteAccuracy: perNoteAccuracyRef.current,
+      noiseScramble: noiseScrambleModeState,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
@@ -567,6 +575,7 @@ export function useGameState() {
     activeNotes,
     notExactMode: notExactModeState, setNotExactMode,
     adaptiveMode, setAdaptiveMode,
+    noiseScrambleMode: noiseScrambleModeState, setNoiseScrambleMode,
     showConfidenceOverlay,
     showDirectionOverlay,
     pendingGuess,

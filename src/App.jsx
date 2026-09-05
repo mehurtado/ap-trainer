@@ -33,6 +33,8 @@ export default function App() {
         onToggleAdaptive={() => g.setAdaptiveMode(!g.adaptiveMode)}
         notExactMode={g.notExactMode}
         onToggleNotExact={() => g.setNotExactMode(!g.notExactMode)}
+        noiseScrambleMode={g.noiseScrambleMode}
+        onToggleNoiseScramble={() => g.setNoiseScrambleMode(!g.noiseScrambleMode)}
       />
     );
   }
