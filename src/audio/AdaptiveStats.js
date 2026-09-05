@@ -25,9 +25,44 @@ export function calculateLatencyScore(hit, latencyMs) {
   return 1.0 - (0.8 * ((latencyMs - 500) / 1000));
 }
 
+// In-set-only per-chroma { correct, total } tally. Deliberately excludes any
+// trial with is_out_of_set === true: a correct "Other" press means "correctly
+// rejected," not "correctly identified," and must not count toward a note's
+// tracked accuracy — mixing the two would corrupt the cold-start-to-tau
+// default that pickMasteryWeighted (and pickNote) depend on. Trials that
+// predate this field (is_out_of_set === undefined) are treated as in-set,
+// which is correct for historical data recorded before this feature existed.
+export function buildChromaAccuracy(trials) {
+  const acc = {};
+  for (const t of trials) {
+    const c = t.target_chroma;
+    if (!c || t.is_out_of_set) continue;
+    if (!acc[c]) acc[c] = { correct: 0, total: 0 };
+    acc[c].total++;
+    if (t.result_bool) acc[c].correct++;
+  }
+  return acc;
+}
+
+// ── Mastery-gated in-set note selection (Not-In-Set / Other feature) ───────
+// Standalone (not a class method): callers can build perNoteAccuracy via
+// buildChromaAccuracy(trials) directly, or via an AdaptiveStats instance's
+// getChromaStats(), independent of whether adaptiveMode/pickNote is active.
+// tau matches ADVANCEMENT_ACCURACY in useGameState.js (kept as a local
+// literal here to avoid a cross-module import).
+export function pickMasteryWeighted(activeNotes, perNoteAccuracy, { tau = 0.90, epsMin = 0.05, wMax = 0.15 } = {}) {
+  const weights = activeNotes.map(note => {
+    const stat = perNoteAccuracy[note];
+    const a = (!stat || stat.total < MIN_TRIALS) ? 0 : stat.correct / stat.total;
+    const raw = tau - a;
+    return Math.min(wMax, Math.max(epsMin, raw));
+  });
+  return weightedRandom(activeNotes, weights);
+}
+
 export class AdaptiveStats {
   constructor(trials) {
-    this._chroma     = {};   // 'C'       → { correct, total }
+    this._chroma     = {};   // 'C'       → { correct, total } (latency-weighted, in-set only)
     this._type       = {};   // 'C:sine'  → { correct, total }
     this._octave     = {};   // 'C:4'     → { correct, total }
     this._instrument = {};   // 'C:piano' → { correct, total }
@@ -39,7 +74,10 @@ export class AdaptiveStats {
       const hit = t.result_bool ? 1 : 0;
       const score = calculateLatencyScore(hit, t.latency_ms || 0);
 
-      this._inc(this._chroma, c, score);
+      // Chroma accuracy is latency-weighted (see calculateLatencyScore) but
+      // excludes out-of-set trials so a note still arrives at unlock "cold" —
+      // a correct "Other" press is a rejection, not an identification.
+      if (!t.is_out_of_set) this._inc(this._chroma, c, score);
 
       const type = t.sine_wave_flag     ? 'sine'
                  : t.noise_masked_flag  ? 'noise'
@@ -60,6 +98,13 @@ export class AdaptiveStats {
     if (!map[key]) map[key] = { correct: 0, total: 0 };
     map[key].total++;
     map[key].correct += score;
+  }
+
+  // In-set-only per-chroma { correct, total } counts (latency-weighted, see
+  // calculateLatencyScore), for callers outside this class's own weighting
+  // methods (e.g. pickMasteryWeighted). Out-of-set trials are excluded.
+  getChromaStats() {
+    return this._chroma;
   }
 
   // Returns inverse-accuracy weight for a stat bucket.

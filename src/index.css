@@ -297,7 +297,6 @@ body {
 }
 :root[data-theme="light"] .note-btn:hover:not(:disabled) { border-color: #bbb; }
 .note-btn:active:not(:disabled) { background: var(--border); }
-.note-btn.inactive { opacity: 0.12; cursor: default; }
 .note-btn:disabled { cursor: default; }
 
 .direction-row {

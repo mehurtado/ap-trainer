@@ -1,21 +1,27 @@
 const CHROMATIC_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export default function NoteGrid({ activeNotes, onPress, disabled }) {
+  const notes = CHROMATIC_ORDER.filter(note => activeNotes.includes(note));
   return (
     <div className="note-grid">
-      {CHROMATIC_ORDER.map(note => {
-        const isActive = activeNotes.includes(note);
-        return (
-          <button
-            key={note}
-            className={`note-btn ${isActive ? 'active' : 'inactive'}`}
-            onClick={() => isActive && !disabled && onPress(note)}
-            disabled={!isActive || disabled}
-          >
-            {note}
-          </button>
-        );
-      })}
+      {notes.map(note => (
+        <button
+          key={note}
+          className="note-btn"
+          onClick={() => !disabled && onPress(note)}
+          disabled={disabled}
+        >
+          {note}
+        </button>
+      ))}
+      <button
+        key="OTHER"
+        className="note-btn"
+        onClick={() => !disabled && onPress('OTHER')}
+        disabled={disabled}
+      >
+        Other
+      </button>
     </div>
   );
 }

@@ -17,7 +17,7 @@ function buildConfusionGrid(trials, filter = 'all') {
     if (filter === 'evening'    && (t.is_cold_start || t.session_type !== 'evening')) continue;
     if (filter === 'second_instinct' && !t.second_instinct_flag) continue;
     if (filter.startsWith('inst:') && t.instrument_id !== filter.slice(5)) continue;
-    if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.target_chroma) {
+    if (!t.result_bool && t.user_guess && t.user_guess !== 'TIMEOUT' && t.user_guess !== 'OTHER' && t.target_chroma) {
       grid[t.target_chroma][t.user_guess] = (grid[t.target_chroma][t.user_guess] || 0) + 1;
     }
   }
@@ -29,12 +29,13 @@ function buildPerNoteStats(trials) {
   const stats = {};
   for (const c of CHROMAS) {
     stats[c] = {
-      overall: { correct: 0, total: 0 },
-      rt:      { sum: 0, count: 0 },
-      sine:    { correct: 0, total: 0 },
-      noise:   { correct: 0, total: 0 },
-      sharp:   { correct: 0, total: 0 },  // detuned sharp trials
-      flat:    { correct: 0, total: 0 },  // detuned flat trials
+      overall:   { correct: 0, total: 0 },
+      rt:        { sum: 0, count: 0 },
+      sine:      { correct: 0, total: 0 },
+      noise:     { correct: 0, total: 0 },
+      sharp:     { correct: 0, total: 0 },  // detuned sharp trials
+      flat:      { correct: 0, total: 0 },  // detuned flat trials
+      preUnlock: { correct: 0, total: 0 },  // out-of-set (not-yet-unlocked) exposures
     };
   }
   for (const t of trials) {
@@ -59,6 +60,10 @@ function buildPerNoteStats(trials) {
       const dir = t.cents_direction === 'flat' ? 'flat' : 'sharp';
       s[dir].total++;
       if (t.result_bool) s[dir].correct++;
+    }
+    if (t.is_out_of_set) {
+      s.preUnlock.total++;
+      if (t.result_bool) s.preUnlock.correct++;
     }
   }
   return stats;
@@ -198,10 +203,11 @@ function PerNoteStats({ trials }) {
   const active = CHROMAS.filter(c => stats[c].overall.total > 0);
   if (active.length === 0) return null;
 
-  const hasSine  = active.some(c => stats[c].sine.total > 0);
-  const hasNoise = active.some(c => stats[c].noise.total > 0);
-  const hasSharp = active.some(c => stats[c].sharp.total > 0);
-  const hasFlat  = active.some(c => stats[c].flat.total > 0);
+  const hasSine      = active.some(c => stats[c].sine.total > 0);
+  const hasNoise     = active.some(c => stats[c].noise.total > 0);
+  const hasSharp     = active.some(c => stats[c].sharp.total > 0);
+  const hasFlat      = active.some(c => stats[c].flat.total > 0);
+  const hasPreUnlock = active.some(c => stats[c].preUnlock.total > 0);
 
   return (
     <div className="pn-wrap">
@@ -216,6 +222,7 @@ function PerNoteStats({ trials }) {
             {hasNoise && <th className="pn-th">Noise</th>}
             {hasSharp && <th className="pn-th">Sharp ↑</th>}
             {hasFlat  && <th className="pn-th">Flat ↓</th>}
+            {hasPreUnlock && <th className="pn-th">Pre-unlock</th>}
           </tr>
         </thead>
         <tbody>
@@ -232,6 +239,7 @@ function PerNoteStats({ trials }) {
               {hasNoise && <AccCell stat={stats[c].noise} />}
               {hasSharp && <AccCell stat={stats[c].sharp} />}
               {hasFlat  && <AccCell stat={stats[c].flat} />}
+              {hasPreUnlock && <AccCell stat={stats[c].preUnlock} />}
             </tr>
           ))}
         </tbody>
@@ -313,7 +321,7 @@ export default function Dashboard({ onBack }) {
 
     if (t.second_instinct_flag === true) {
       siTotal++;
-      if (t.second_instinct_note === t.target_chroma) {
+      if (t.is_out_of_set ? t.second_instinct_note === 'OTHER' : t.second_instinct_note === t.target_chroma) {
         siCorrect++;
       }
     }
@@ -356,6 +364,20 @@ export default function Dashboard({ onBack }) {
 
   const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
   const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
+
+  // false-positive: out-of-set trial where the user pressed an active-set
+  // button instead of Other (spec §8, exact wording)
+  const outOfSetTrials = trials.filter(t => t.is_out_of_set === true);
+  const falsePositiveCount = outOfSetTrials.filter(t => t.user_guess !== 'OTHER' && t.user_guess !== 'TIMEOUT').length;
+  const falsePositiveRate  = outOfSetTrials.length
+    ? (falsePositiveCount / outOfSetTrials.length * 100).toFixed(1) : '--';
+
+  // false-negative / missed-rejection: in-set trial where the user pressed
+  // Other instead of the correct note (spec §8, exact wording)
+  const inSetTrials = trials.filter(t => t.is_out_of_set === false);
+  const falseNegativeCount = inSetTrials.filter(t => t.user_guess === 'OTHER').length;
+  const falseNegativeRate  = inSetTrials.length
+    ? (falseNegativeCount / inSetTrials.length * 100).toFixed(1) : '--';
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -406,6 +428,14 @@ export default function Dashboard({ onBack }) {
         <div className="stat-card">
           <span className="stat-value">{timeoutFreq}%</span>
           <span className="stat-label">timeouts</span>
+        </div>
+        <div className="stat-card" data-tip="Out-of-set trials where you pressed an active-set note instead of Other">
+          <span className="stat-value">{falsePositiveRate}%</span>
+          <span className="stat-label">false positive rate</span>
+        </div>
+        <div className="stat-card" data-tip="In-set trials where you pressed Other instead of the correct note (missed rejection)">
+          <span className="stat-value">{falseNegativeRate}%</span>
+          <span className="stat-label">false negative rate</span>
         </div>
         <div className="stat-card">
           <span className="stat-value">{avgRt}{avgRt !== '--' ? 'ms' : ''}</span>

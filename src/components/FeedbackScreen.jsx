@@ -20,9 +20,6 @@ export default function FeedbackScreen({ feedback, onContinue, sessionFatigue })
               ? 'TIMEOUT'
               : `You pressed: ${feedback.guess}${feedback.wasDirectionTested ? getDirectionArrow(feedback.guessDirection) : ''}`}
           </div>
-          <div className="target-label">
-            Correct: <strong>{feedback.target}{feedback.wasDirectionTested ? getDirectionArrow(feedback.targetDirection) : ''}</strong>
-          </div>
           {feedback.neighbors.length > 0 && (
             <div className="neighbors">
               <span className="neighbors-label">Often confused with: </span>
@@ -31,6 +28,12 @@ export default function FeedbackScreen({ feedback, onContinue, sessionFatigue })
           )}
         </div>
       )}
+
+      <div className="target-label">
+        {feedback.isOutOfSet
+          ? <>Played: <strong>{feedback.target}</strong> (not in current set)</>
+          : <>Correct: <strong>{feedback.target}{feedback.wasDirectionTested ? getDirectionArrow(feedback.targetDirection) : ''}</strong></>}
+      </div>
 
       {sessionFatigue && (
         <div className="fatigue-warning">

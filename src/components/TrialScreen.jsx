@@ -140,6 +140,7 @@ export default function TrialScreen({
             {activeNotes.map(n => (
               <button key={n} className="conf-btn high" onClick={() => onSecondInstinct(true, n)}>{n}</button>
             ))}
+            <button key="OTHER" className="conf-btn high" onClick={() => onSecondInstinct(true, 'OTHER')}>Other</button>
           </div>
         </div>
       )}

@@ -118,6 +118,7 @@ export async function exportCSV() {
 
   const trialHeaders = [
     'timestamp','is_cold_start','target_chroma','target_octave',
+    'is_out_of_set','active_set_size',
     'cents_offset','cents_direction','instrument_id','sine_wave_flag',
     'noise_masked_flag','noise_type','dropout_type','tonal_context_flag',
     'attention_cue','user_guess','user_guess_direction','confidence',

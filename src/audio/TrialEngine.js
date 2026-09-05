@@ -3,6 +3,7 @@ import {
   chromaOctaveToHz,
 } from './constants.js';
 import { audioEngine } from './AudioEngine.js';
+import { pickMasteryWeighted } from './AdaptiveStats.js';
 
 // Picks a random integer in [min, max] inclusive
 function randInt(min, max) {
@@ -27,17 +28,29 @@ function pickStimulusType(isDrill = false) {
 // Generates the next trial spec given active notes and level.
 // When adaptiveStats is provided it drives all selection dimensions;
 // otherwise falls back to adversarial pick at level 12 or uniform random.
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs }) {
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs, perNoteAccuracy = {} }) {
   const isDrill = sessionType === 'drill';
 
   // ── Chroma ────────────────────────────────────────────────────────────────
+  // "Not In Set" (Other): sample outside the active set S so users can't win
+  // by process-of-elimination. P(OutOfSet) = 1/(k+1) for k=|S|. Disabled when
+  // S already covers all 12 chromas (complement empty — first occurs at
+  // level 11, since LEVEL_NOTES[11] === LEVEL_NOTES[12] === CHROMAS).
+  const k = activeNotes.length;
+  const canGoOutOfSet = k < CHROMAS.length;
+  const pOut = canGoOutOfSet ? 1 / (k + 1) : 0;
+  const isOutOfSet = canGoOutOfSet && Math.random() < pOut;
+
   let targetChroma;
-  if (adaptiveStats) {
+  if (isOutOfSet) {
+    const complement = CHROMAS.filter(c => !activeNotes.includes(c));
+    targetChroma = randChoice(complement);
+  } else if (adaptiveStats) {
     targetChroma = adaptiveStats.pickNote(activeNotes);
   } else if (level === 12 && confusionMatrix) {
     targetChroma = adversarialPick(activeNotes, confusionMatrix, trialIndexInSession);
   } else {
-    targetChroma = randChoice(activeNotes);
+    targetChroma = pickMasteryWeighted(activeNotes, perNoteAccuracy);
   }
 
   // ── Instrument & octave ───────────────────────────────────────────────────
@@ -72,6 +85,7 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
 
   return {
     targetChroma,
+    isOutOfSet,
     octave,
     instrument: inst,
     stimType,       // 'instrument' | 'sine' | 'detuned' | 'noise'

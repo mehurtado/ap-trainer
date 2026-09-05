@@ -4,7 +4,7 @@ import { generateTrial, playTrial } from '../audio/TrialEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
 import { LEVEL_NOTES, CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 import { saveTrial, getAllTrials, getMeta, setMeta } from '../db/db.js';
-import { AdaptiveStats } from '../audio/AdaptiveStats.js';
+import { AdaptiveStats, buildChromaAccuracy } from '../audio/AdaptiveStats.js';
 
 const ADVANCEMENT_TRIALS = 50;
 const ADVANCEMENT_ACCURACY = 0.90;
@@ -57,6 +57,7 @@ export function useGameState() {
   const lastTrialTime = useRef(null);
   const drillNotesRef = useRef(null);
   const adaptiveStatsRef = useRef(null);
+  const perNoteAccuracyRef = useRef({});
 
   // Load persisted level and streak on mount
   useEffect(() => {
@@ -96,9 +97,21 @@ export function useGameState() {
     setMeta('notExactMode', v);
   }
 
-  async function buildAdaptiveStats() {
+  // Runs once per session start, always (see Decision C: perNoteAccuracy must
+  // always be fresh for mastery-weighted note selection, independent of
+  // adaptiveMode). When adaptiveMode is off, skip building the full
+  // AdaptiveStats instance (and its unused instrument/octave/type/direction
+  // tallies) and compute only the chroma accuracy we actually need.
+  async function loadPerTrialState() {
     const trials = await getAllTrials();
-    adaptiveStatsRef.current = new AdaptiveStats(trials);
+    if (adaptiveMode) {
+      const stats = new AdaptiveStats(trials);
+      adaptiveStatsRef.current = stats;
+      perNoteAccuracyRef.current = stats.getChromaStats();
+    } else {
+      adaptiveStatsRef.current = null;
+      perNoteAccuracyRef.current = buildChromaAccuracy(trials);
+    }
   }
 
   // These wrappers must be called synchronously from button click handlers
@@ -127,7 +140,7 @@ export function useGameState() {
     setConsecutiveCorrectTiming(0);
     const cold = checkColdStart();
     setIsColdStart(cold);
-    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
+    await loadPerTrialState();
     setScreen('trial');
     launchTrial(0, type, cold);
   }
@@ -139,7 +152,7 @@ export function useGameState() {
     setSessionFatigue(false);
     setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
-    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
+    await loadPerTrialState();
     setScreen('trial');
     launchTrial(0, 'micro', false);
   }
@@ -153,7 +166,7 @@ export function useGameState() {
     setSessionFatigue(false);
     setConsecutiveCorrectTiming(0);
     setIsColdStart(false);
-    if (adaptiveMode) await buildAdaptiveStats(); else adaptiveStatsRef.current = null;
+    await loadPerTrialState();
     setScreen('trial');
     launchTrial(0, 'drill', false);
   }
@@ -172,6 +185,7 @@ export function useGameState() {
       setMeta('responseWindowMs', currentWindowMs);
     }
 
+    setActiveNotes(notes); // keeps NoteGrid/SI-grid in sync with the set actually sampled (fixes the drill-desync bug above)
     const trial = generateTrial({
       activeNotes: notes,
       level,
@@ -181,9 +195,11 @@ export function useGameState() {
       sessionType: sessType,
       adaptiveStats: adaptiveStatsRef.current,
       responseWindowMs: currentWindowMs,
+      perNoteAccuracy: perNoteAccuracyRef.current,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
+    trial.activeSetSize = notes.length;
     setCurrentTrial(trial);
 
     const startMs = await playTrial(trial);
@@ -232,8 +248,12 @@ export function useGameState() {
     const trial = currentTrial;
     const isTimeout = chroma === '__timeout__';
     const isDirectionTested = notExactModeState && trial.stimType === 'detuned';
-    const correct = !isTimeout && chroma === trial.targetChroma &&
-      (isDirectionTested ? pendingGuess?.direction === trial.centDirection : true);
+    const correct = !isTimeout && (
+      trial.isOutOfSet
+        ? chroma === 'OTHER'
+        : chroma === trial.targetChroma &&
+          (isDirectionTested ? pendingGuess?.direction === trial.centDirection : true)
+    );
 
     if (!correct && !isTimeout && confidence === 'low') {
       // Need second instinct prompt
@@ -276,7 +296,13 @@ export function useGameState() {
       newRecent.reduce((a, b) => a + b, 0) / newRecent.length < FATIGUE_THRESHOLD;
     if (fatigue) setSessionFatigue(true);
 
-    // Advancement check (last 50 trials) — disabled in drill mode
+    // Advancement check (last 50 trials) — disabled in drill mode.
+    // Out-of-set ("Other") trials count toward this window like any other
+    // trial — no special-casing, per spec design intent (Other isn't a
+    // separate mode) and to avoid unrequested complexity. Tunable later if
+    // this pacing proves too harsh for users weak specifically at rejection
+    // (mirrors how epsMin/wMax in pickMasteryWeighted are flagged as
+    // tunable starting points, not fixed constants).
     if (trial.sessionType !== 'drill') {
       const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
       if (last50.length >= ADVANCEMENT_TRIALS) {
@@ -326,6 +352,8 @@ export function useGameState() {
       is_cold_start: trial.isColdStart || false,
       target_chroma: trial.targetChroma,
       target_octave: trial.octave,
+      is_out_of_set: trial.isOutOfSet,
+      active_set_size: trial.activeSetSize,
       cents_offset: trial.centOffset,
       cents_direction: trial.centDirection,
       instrument_id: trial.instrument,
@@ -363,6 +391,7 @@ export function useGameState() {
       guess: isTimeout ? 'TIMEOUT' : chroma,
       target: trial.targetChroma,
       isTimeout,
+      isOutOfSet: trial.isOutOfSet,
       confidence,
       neighbors: topPairs,
       guessDirection: pendingGuess?.direction,
