@@ -335,32 +335,35 @@ export default function Dashboard({ onBack }) {
   const avgRtCorrect = validRtCorrTotal ? Math.round(validRtCorrSum / validRtCorrTotal) : '--';
   const siAcc = siTotal ? (siCorrect / siTotal * 100).toFixed(1) : '--';
 
-  let earlyAcc = { correct: 0, total: 0 };
-  let lateAcc  = { correct: 0, total: 0 };
+  const { earlyAcc, lateAcc } = useMemo(() => {
+    let early = { correct: 0, total: 0 };
+    let late  = { correct: 0, total: 0 };
 
-  if (trials.length > 0) {
-    const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    let sessionIdx = 0;
-    let lastTime = 0;
+    if (trials.length > 0) {
+      const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      let sessionIdx = 0;
+      let lastTime = 0;
 
-    for (const t of sorted) {
-      const time = new Date(t.timestamp).getTime();
-      if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
-        sessionIdx = 0;
-      }
+      for (const t of sorted) {
+        const time = new Date(t.timestamp).getTime();
+        if (t.is_cold_start || (lastTime > 0 && time - lastTime > 600000)) {
+          sessionIdx = 0;
+        }
 
-      sessionIdx++;
-      lastTime = time;
+        sessionIdx++;
+        lastTime = time;
 
-      if (sessionIdx <= 10) {
-        earlyAcc.total++;
-        if (t.result_bool) earlyAcc.correct++;
-      } else {
-        lateAcc.total++;
-        if (t.result_bool) lateAcc.correct++;
+        if (sessionIdx <= 10) {
+          early.total++;
+          if (t.result_bool) early.correct++;
+        } else {
+          late.total++;
+          if (t.result_bool) late.correct++;
+        }
       }
     }
-  }
+    return { earlyAcc: early, lateAcc: late };
+  }, [trials]);
 
   const earlyAccPct = earlyAcc.total > 0 ? (earlyAcc.correct / earlyAcc.total * 100).toFixed(1) : '--';
   const lateAccPct  = lateAcc.total > 0 ? (lateAcc.correct / lateAcc.total * 100).toFixed(1) : '--';
