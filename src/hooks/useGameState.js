@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { audioEngine } from '../audio/AudioEngine.js';
 import { generateTrial, playTrial } from '../audio/TrialEngine.js';
+import { generateProgression, playProgression } from '../audio/ProgressionEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
 import { LEVEL_NOTES, CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 import { saveTrial, getAllTrials, getMeta, setMeta } from '../db/db.js';
@@ -49,6 +50,9 @@ export function useGameState() {
   const [notExactModeState, setNotExactModeState] = useState(false);
   const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
   const [adaptiveMode, setAdaptiveModeState] = useState(false);
+  const [currentProgression, setCurrentProgression] = useState(null);
+  const [audioEndMs, setAudioEndMs] = useState(0);
+  const [progressionFeedback, setProgressionFeedback] = useState(null);
   const [responseWindowMs, setResponseWindowMs] = useState(1500);
   const [consecutiveCorrectTiming, setConsecutiveCorrectTiming] = useState(0);
 
@@ -131,6 +135,11 @@ export function useGameState() {
     startDrill(notes);
   }
 
+  function beginProgression() {
+    audioEngine.initSync();
+    startProgressionSession();
+  }
+
   async function startSession(type = 'evening') {
     setSessionType(type);
     setTrialIndex(0);
@@ -169,6 +178,99 @@ export function useGameState() {
     await loadPerTrialState();
     setScreen('trial');
     launchTrial(0, 'drill', false);
+  }
+
+  // ── Chord progression session ─────────────────────────────────────────────
+  const PROGRESSION_SESSION_TRIALS = 10;
+
+  async function startProgressionSession() {
+    setSessionType('progression');
+    setTrialIndex(0);
+    setRecentResults([]);
+    setConsecutiveResults([]);
+    setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
+    setIsColdStart(false);
+    await loadPerTrialState();
+    // Preload piano samples so the first progression starts on time.
+    audioEngine.preloadInstrument('piano');
+    setScreen('progression');
+    launchProgressionTrial(0);
+  }
+
+  async function launchProgressionTrial() {
+    const notes = LEVEL_NOTES[level] || CHROMAS;
+    setActiveNotes(notes);
+    const prog = generateProgression({ activeNotes: notes, level });
+    setCurrentProgression(prog);
+    setProgressionFeedback(null);
+    setAudioEndMs(0);
+  }
+
+  async function playProgressionAgain() {
+    if (!currentProgression) return;
+    const endMs = await playProgression(currentProgression);
+    setAudioEndMs(endMs);
+  }
+
+  function handleProgressionGuess(chroma) {
+    const prog = currentProgression;
+    if (!prog) return;
+    const latencyMs = Math.max(0, Date.now() - audioEndMs);
+    const correct = chroma === prog.tonic;
+
+    const trialLog = {
+      is_cold_start: false,
+      target_chroma: prog.tonic,
+      target_octave: null,
+      is_out_of_set: false,
+      active_set_size: prog.activeSetSize,
+      cents_offset: 0,
+      cents_direction: 'none',
+      instrument_id: 'piano',
+      sine_wave_flag: false,
+      noise_masked_flag: false,
+      noise_type: 'none',
+      dropout_type: 'none',
+      tonal_context_flag: false,
+      attention_cue: 'none',
+      user_guess: chroma,
+      user_guess_direction: 'none',
+      confidence: 'high',
+      latency_ms: latencyMs,
+      result_bool: correct,
+      timeout_flag: false,
+      second_instinct_flag: false,
+      second_instinct_note: null,
+      level,
+      session_fatigue_flag: false,
+      session_type: 'progression',
+      drill_mode_flag: false,
+      drill_notes: null,
+      response_window_ms: 0,
+      notes: '',
+      progression_flag: true,
+      progression_quality: prog.quality,
+      progression_length: prog.length,
+      progression_degrees: prog.degrees.join('-'),
+    };
+    saveTrial(trialLog);
+
+    setConsecutiveResults(prev => [...prev, correct]);
+
+    setProgressionFeedback({ correct, guess: chroma, target: prog.tonic, quality: prog.quality });
+    setScreen('feedback');
+  }
+
+  function proceedProgressionAfterFeedback() {
+    if (trialIndex >= PROGRESSION_SESSION_TRIALS - 1) {
+      setScreen('home');
+      return;
+    }
+    const nextIdx = trialIndex + 1;
+    setTrialIndex(nextIdx);
+    launchProgressionTrial(nextIdx);
+    setScreen('progression');
   }
 
   async function launchTrial(idx, sessType, cold) {
@@ -474,6 +576,13 @@ export function useGameState() {
     startSession: beginSession,
     startMicro: beginMicro,
     startDrill: beginDrill,
+    startProgression: beginProgression,
+    currentProgression,
+    audioEndMs,
+    progressionFeedback,
+    playProgressionAgain,
+    handleProgressionGuess,
+    proceedProgressionAfterFeedback,
     handleNotePress,
     handleDirectionPress,
     handleConfidence,

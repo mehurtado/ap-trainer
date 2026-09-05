@@ -1,6 +1,6 @@
 const CHROMATIC_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-export default function NoteGrid({ activeNotes, onPress, disabled }) {
+export default function NoteGrid({ activeNotes, onPress, disabled, showOther = true }) {
   const notes = CHROMATIC_ORDER.filter(note => activeNotes.includes(note));
   return (
     <div className="note-grid">
@@ -14,14 +14,16 @@ export default function NoteGrid({ activeNotes, onPress, disabled }) {
           {note}
         </button>
       ))}
-      <button
-        key="OTHER"
-        className="note-btn"
-        onClick={() => !disabled && onPress('OTHER')}
-        disabled={disabled}
-      >
-        Other
-      </button>
+      {showOther && (
+        <button
+          key="OTHER"
+          className="note-btn"
+          onClick={() => !disabled && onPress('OTHER')}
+          disabled={disabled}
+        >
+          Other
+        </button>
+      )}
     </div>
   );
 }

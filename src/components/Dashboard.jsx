@@ -248,6 +248,89 @@ function PerNoteStats({ trials }) {
   );
 }
 
+// ── Chord progression stats ────────────────────────────────────────────────
+
+function ProgressionStats({ trials }) {
+  if (trials.length === 0) return null;
+
+  const total = trials.length;
+  const correct = trials.filter(t => t.result_bool).length;
+  const overallAcc = (correct / total * 100).toFixed(1);
+
+  const accFor = (arr) => arr.length
+    ? (arr.filter(t => t.result_bool).length / arr.length * 100).toFixed(1)
+    : '--';
+  const majorTrials = trials.filter(t => t.progression_quality === 'major');
+  const minorTrials = trials.filter(t => t.progression_quality === 'minor');
+
+  const byKey = {};
+  for (const t of trials) {
+    const k = t.target_chroma;
+    if (!byKey[k]) byKey[k] = { total: 0, correct: 0, majorTotal: 0, majorCorrect: 0, minorTotal: 0, minorCorrect: 0 };
+    const s = byKey[k];
+    s.total++;
+    if (t.result_bool) s.correct++;
+    if (t.progression_quality === 'major') {
+      s.majorTotal++;
+      if (t.result_bool) s.majorCorrect++;
+    } else if (t.progression_quality === 'minor') {
+      s.minorTotal++;
+      if (t.result_bool) s.minorCorrect++;
+    }
+  }
+  const keys = Object.keys(byKey).sort();
+
+  return (
+    <div className="dash-card">
+      <h3>Chord Progressions</h3>
+      <div className="prog-summary">
+        <div className="stat-card">
+          <span className="stat-value">{total}</span>
+          <span className="stat-label">progressions</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{overallAcc}%</span>
+          <span className="stat-label">key accuracy</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{accFor(majorTrials)}%</span>
+          <span className="stat-label">major</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value">{accFor(minorTrials)}%</span>
+          <span className="stat-label">minor</span>
+        </div>
+      </div>
+      <table className="pn-table prog-table">
+        <thead>
+          <tr>
+            <th className="pn-th pn-left">Key</th>
+            <th className="pn-th">Overall</th>
+            <th className="pn-th">Major</th>
+            <th className="pn-th">Minor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map(k => {
+            const s = byKey[k];
+            const overallPct = (s.correct / s.total * 100).toFixed(0);
+            const majorPct = s.majorTotal ? (s.majorCorrect / s.majorTotal * 100).toFixed(0) : '—';
+            const minorPct = s.minorTotal ? (s.minorCorrect / s.minorTotal * 100).toFixed(0) : '—';
+            return (
+              <tr key={k}>
+                <td className="pn-label">{k}</td>
+                <td className="pn-cell" style={{ color: accColor(overallPct) }}>{overallPct}%<span className="pn-n"> {s.total}</span></td>
+                <td className="pn-cell" style={{ color: majorPct === '—' ? 'var(--text-dim)' : accColor(majorPct) }}>{majorPct}{majorPct !== '—' ? '%' : ''}</td>
+                <td className="pn-cell" style={{ color: minorPct === '—' ? 'var(--text-dim)' : accColor(minorPct) }}>{minorPct}{minorPct !== '—' ? '%' : ''}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function Dashboard({ onBack }) {
@@ -261,7 +344,12 @@ export default function Dashboard({ onBack }) {
     getAllTrials().then(setTrials);
   }, []);
 
-  const grid = useMemo(() => buildConfusionGrid(trials, matrixFilter), [trials, matrixFilter]);
+  // Chord-progression trials are tracked separately from single-note trials so
+  // the note-focused metrics (accuracy, RT, confusion, per-note) stay clean.
+  const noteTrials = useMemo(() => trials.filter(t => !t.progression_flag), [trials]);
+  const progTrials = useMemo(() => trials.filter(t => t.progression_flag), [trials]);
+
+  const grid = useMemo(() => buildConfusionGrid(noteTrials, matrixFilter), [noteTrials, matrixFilter]);
 
   async function doExport() {
     setExporting(true);
@@ -297,8 +385,8 @@ export default function Dashboard({ onBack }) {
   let siTotal = 0;
   let siCorrect = 0;
 
-  for (let i = 0; i < trials.length; i++) {
-    const t = trials[i];
+  for (let i = 0; i < noteTrials.length; i++) {
+    const t = noteTrials[i];
     if (t.result_bool) correctTrials++;
 
     if (t.sine_wave_flag) {
@@ -327,7 +415,7 @@ export default function Dashboard({ onBack }) {
     }
   }
 
-  const totalTrials = trials.length;
+  const totalTrials = noteTrials.length;
   const overallAcc = totalTrials ? (correctTrials / totalTrials * 100).toFixed(1) : '--';
   const sineAcc = sineTotal ? (sineCorrect / sineTotal * 100).toFixed(1) : '--';
   const timeoutFreq = totalTrials ? (timeouts / totalTrials * 100).toFixed(1) : '--';
@@ -338,8 +426,8 @@ export default function Dashboard({ onBack }) {
   let earlyAcc = { correct: 0, total: 0 };
   let lateAcc  = { correct: 0, total: 0 };
 
-  if (trials.length > 0) {
-    const sorted = [...trials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (noteTrials.length > 0) {
+    const sorted = [...noteTrials].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     let sessionIdx = 0;
     let lastTime = 0;
 
@@ -367,14 +455,14 @@ export default function Dashboard({ onBack }) {
 
   // false-positive: out-of-set trial where the user pressed an active-set
   // button instead of Other (spec §8, exact wording)
-  const outOfSetTrials = trials.filter(t => t.is_out_of_set === true);
+  const outOfSetTrials = noteTrials.filter(t => t.is_out_of_set === true);
   const falsePositiveCount = outOfSetTrials.filter(t => t.user_guess !== 'OTHER' && t.user_guess !== 'TIMEOUT').length;
   const falsePositiveRate  = outOfSetTrials.length
     ? (falsePositiveCount / outOfSetTrials.length * 100).toFixed(1) : '--';
 
   // false-negative / missed-rejection: in-set trial where the user pressed
   // Other instead of the correct note (spec §8, exact wording)
-  const inSetTrials = trials.filter(t => t.is_out_of_set === false);
+  const inSetTrials = noteTrials.filter(t => t.is_out_of_set === false);
   const falseNegativeCount = inSetTrials.filter(t => t.user_guess === 'OTHER').length;
   const falseNegativeRate  = inSetTrials.length
     ? (falseNegativeCount / inSetTrials.length * 100).toFixed(1) : '--';
@@ -456,9 +544,11 @@ export default function Dashboard({ onBack }) {
       </div>
 
       <div className="dash-cols">
-        <div className="dash-card"><AccuracyChart trials={trials} /></div>
-        <div className="dash-card"><PerNoteStats trials={trials} /></div>
+        <div className="dash-card"><AccuracyChart trials={noteTrials} /></div>
+        <div className="dash-card"><PerNoteStats trials={noteTrials} /></div>
       </div>
+
+      <ProgressionStats trials={progTrials} />
 
       <div className="matrix-filter">
         <select

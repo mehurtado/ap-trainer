@@ -36,7 +36,7 @@ export function buildChromaAccuracy(trials) {
   const acc = {};
   for (const t of trials) {
     const c = t.target_chroma;
-    if (!c || t.is_out_of_set) continue;
+    if (!c || t.is_out_of_set || t.progression_flag) continue;
     if (!acc[c]) acc[c] = { correct: 0, total: 0 };
     acc[c].total++;
     if (t.result_bool) acc[c].correct++;
@@ -70,7 +70,7 @@ export class AdaptiveStats {
 
     for (const t of trials) {
       const c = t.target_chroma;
-      if (!c) continue;
+      if (!c || t.progression_flag) continue;
       const hit = t.result_bool ? 1 : 0;
       const score = calculateLatencyScore(hit, t.latency_ms || 0);
 

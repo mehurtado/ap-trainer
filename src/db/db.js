@@ -126,6 +126,7 @@ export async function exportCSV() {
     'second_instinct_flag','second_instinct_note',
     'level','session_fatigue_flag','session_type',
     'drill_mode_flag','drill_notes',
+    'progression_flag','progression_quality','progression_length','progression_degrees',
     'notes'
   ];
 

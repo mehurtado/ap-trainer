@@ -10,6 +10,7 @@ export default function HomeScreen({
   onStartColdStart,
   onStartMicro,
   onStartDrill,
+  onStartProgression,
   onDashboard,
   onAmbient,
   onSetLevel,
@@ -131,6 +132,11 @@ export default function HomeScreen({
             >
               Drill Mode
               <span className="btn-sub">Custom subset focus · no advancement</span>
+            </button>
+
+            <button className="session-btn micro" onClick={onStartProgression}>
+              Chord Progressions
+              <span className="btn-sub">Identify the key · 3–6 chords</span>
             </button>
 
             {showDrillPicker && (

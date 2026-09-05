@@ -6,6 +6,8 @@ import FeedbackScreen from './components/FeedbackScreen.jsx';
 import WipeScreen from './components/WipeScreen.jsx';
 import Dashboard from './components/Dashboard.jsx';
 import AmbientLog from './components/AmbientLog.jsx';
+import ProgressionScreen from './components/ProgressionScreen.jsx';
+import ProgressionFeedback from './components/ProgressionFeedback.jsx';
 import './App.css';
 
 export default function App() {
@@ -24,6 +26,7 @@ export default function App() {
         onAmbient={() => g.setScreen('ambient')}
         onSetLevel={g.setLevel}
         onStartDrill={g.startDrill}
+        onStartProgression={g.startProgression}
         theme={theme}
         onToggleTheme={toggleTheme}
         adaptiveMode={g.adaptiveMode}
@@ -60,7 +63,33 @@ export default function App() {
     );
   }
 
+  if (g.screen === 'progression') {
+    const correct = g.consecutiveResults.filter(Boolean).length;
+    const total = g.consecutiveResults.length;
+    return (
+      <ProgressionScreen
+        currentProgression={g.currentProgression}
+        activeNotes={g.activeNotes}
+        onGuess={g.handleProgressionGuess}
+        onPlayAgain={g.playProgressionAgain}
+        onQuit={g.goHome}
+        level={g.level}
+        trialIndex={g.trialIndex}
+        sessionCorrect={correct}
+        sessionTotal={total}
+      />
+    );
+  }
+
   if (g.screen === 'feedback') {
+    if (g.progressionFeedback) {
+      return (
+        <ProgressionFeedback
+          feedback={g.progressionFeedback}
+          onContinue={g.proceedProgressionAfterFeedback}
+        />
+      );
+    }
     return (
       <FeedbackScreen
         feedback={g.feedback}
