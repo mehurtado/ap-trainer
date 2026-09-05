@@ -3,7 +3,7 @@ import { audioEngine } from '../audio/AudioEngine.js';
 import { generateTrial, playTrial } from '../audio/TrialEngine.js';
 import { generateProgression, playProgression } from '../audio/ProgressionEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
-import { LEVEL_NOTES, CHROMAS, INSTRUMENTS } from '../audio/constants.js';
+import { LEVEL_NOTES, CHROMAS, INSTRUMENTS, chromaOctaveToHz } from '../audio/constants.js';
 import { saveTrial, getAllTrials, getMeta, setMeta } from '../db/db.js';
 import { AdaptiveStats, buildChromaAccuracy } from '../audio/AdaptiveStats.js';
 
@@ -274,10 +274,34 @@ export function useGameState() {
       setScreen('home');
       return;
     }
-    const nextIdx = trialIndex + 1;
-    setTrialIndex(nextIdx);
-    launchProgressionTrial(nextIdx);
-    setScreen('progression');
+
+    // Scrambling phase: run the same buffer wipe used between note trials so
+    // the previous progression's key doesn't linger in memory.
+    setScreen('wipe');
+    setWipeProgress(0);
+
+    const tonicHz = currentProgression
+      ? chromaOctaveToHz(currentProgression.tonic, 4, 0)
+      : 440;
+    audioEngine.runBufferWipe(tonicHz, 'piano');
+
+    const wipeEnd = Date.now() + 10000;
+    setWipeEndTime(wipeEnd);
+
+    const interval = setInterval(() => {
+      const remaining = wipeEnd - Date.now();
+      const progress = Math.max(0, 1 - remaining / 10000);
+      setWipeProgress(progress);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        wipeTimer.current = null;
+        const nextIdx = trialIndex + 1;
+        setTrialIndex(nextIdx);
+        launchProgressionTrial(nextIdx);
+        setScreen('progression');
+      }
+    }, 100);
+    wipeTimer.current = interval;
   }
 
   async function launchTrial(idx, sessType, cold) {
