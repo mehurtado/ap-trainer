@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { getAllTrials, exportCSV, clearHistory } from '../db/db.js';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { getAllTrials, exportCSV, exportJSON, importJSON, clearHistory } from '../db/db.js';
 import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
 // ── Data builders ──────────────────────────────────────────────────────────
@@ -339,6 +339,10 @@ export default function Dashboard({ onBack }) {
   const [exporting, setExporting]     = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [wiping, setWiping]           = useState(false);
+  const [backingUp, setBackingUp]     = useState(false);
+  const [restoring, setRestoring]     = useState(false);
+  const [restoreMsg, setRestoreMsg]   = useState('');
+  const restoreInputRef = useRef(null);
 
   useEffect(() => {
     getAllTrials().then(setTrials);
@@ -370,6 +374,44 @@ export default function Dashboard({ onBack }) {
     setTrials([]);
     setWiping(false);
     setConfirmWipe(false);
+  }
+
+  // Full-fidelity JSON backup, for carrying history across origins (e.g. a
+  // preview-deploy URL that changes, and therefore resets IndexedDB, on
+  // every new PR). CSV export above is for spreadsheet analysis and is lossy
+  // (stringified), so it's not used as the restore source.
+  async function doBackup() {
+    setBackingUp(true);
+    const data = await exportJSON();
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ap-trainer-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackingUp(false);
+  }
+
+  function doRestoreClick() {
+    setRestoreMsg('');
+    restoreInputRef.current?.click();
+  }
+
+  async function doRestoreFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setRestoring(true);
+    try {
+      const data = JSON.parse(await file.text());
+      const { trials: n, ambient: m } = await importJSON(data);
+      setTrials(await getAllTrials());
+      setRestoreMsg(`Restored ${n} trials, ${m} ambient entries.`);
+    } catch (err) {
+      setRestoreMsg(`Restore failed: ${err.message}`);
+    }
+    setRestoring(false);
   }
 
   // ── Aggregate stats ──────────────────────────────────────────────────────
@@ -478,11 +520,26 @@ export default function Dashboard({ onBack }) {
           <button className="export-btn" onClick={doExport} disabled={exporting}>
             {exporting ? '...' : 'Export CSV'}
           </button>
+          <button className="export-btn" onClick={doBackup} disabled={backingUp} title="Full backup — use this to carry history into a new preview-deploy URL">
+            {backingUp ? '...' : 'Backup'}
+          </button>
+          <button className="export-btn" onClick={doRestoreClick} disabled={restoring} title="Restore a backup — merges into the history already here">
+            {restoring ? '...' : 'Restore'}
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json"
+            hidden
+            onChange={doRestoreFile}
+          />
           <button className="wipe-btn" onClick={() => setConfirmWipe(true)} disabled={confirmWipe}>
             Wipe History
           </button>
         </div>
       </div>
+
+      {restoreMsg && <div className="restore-msg">{restoreMsg}</div>}
 
       {confirmWipe && (
         <div className="wipe-confirm-bar">

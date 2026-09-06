@@ -102,6 +102,27 @@ export async function clearHistory() {
   });
 }
 
+// Full-fidelity backup/restore (JSON, not CSV) so history can be carried
+// across origins — e.g. Vercel/Netlify preview deploys, which get a fresh
+// throwaway domain per PR and therefore a fresh, empty IndexedDB.
+export async function exportJSON() {
+  const [trials, ambient] = await Promise.all([getAllTrials(), getAllAmbient()]);
+  return { trials, ambient, exportedAt: new Date().toISOString() };
+}
+
+export async function importJSON({ trials = [], ambient = [] }) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['trials', 'ambient'], 'readwrite');
+    const tStore = tx.objectStore('trials');
+    const aStore = tx.objectStore('ambient');
+    for (const t of trials) tStore.add(t);
+    for (const a of ambient) aStore.add(a);
+    tx.oncomplete = () => resolve({ trials: trials.length, ambient: ambient.length });
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const CSV_INJECTION_REGEX = /^[=+\-@\t\r]/;
 
 export function sanitizeForCSV(value) {

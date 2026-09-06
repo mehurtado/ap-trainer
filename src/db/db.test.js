@@ -106,7 +106,7 @@ globalThis.indexedDB = {
   }
 };
 
-const { saveTrial, getAllTrials } = await import('./db.js');
+const { saveTrial, getAllTrials, exportJSON, importJSON } = await import('./db.js');
 
 test('test saveTrial success', async () => {
   await saveTrial({ note: 'C' });
@@ -121,4 +121,25 @@ test('test saveTrial error', async () => {
     () => saveTrial({ triggerError: true }),
     { message: 'Mocked transaction error' }
   );
+});
+
+test('exportJSON/importJSON round-trips trials and ambient with original timestamps', async () => {
+  const before = await exportJSON();
+  assert.ok(Array.isArray(before.trials));
+  assert.ok(Array.isArray(before.ambient));
+
+  const backup = {
+    trials: [{ note: 'G', timestamp: '2020-01-01T00:00:00.000Z' }],
+    ambient: [{ sound_source: 'fridge', timestamp: '2020-01-01T00:00:00.000Z' }],
+  };
+  const result = await importJSON(backup);
+  assert.strictEqual(result.trials, 1);
+  assert.strictEqual(result.ambient, 1);
+
+  const after = await getAllTrials();
+  const imported = after.find(t => t.note === 'G');
+  assert.ok(imported, 'imported trial should be present');
+  // Timestamp must be preserved exactly, not overwritten with import time
+  // (unlike saveTrial, which always stamps "now").
+  assert.strictEqual(imported.timestamp, '2020-01-01T00:00:00.000Z');
 });
