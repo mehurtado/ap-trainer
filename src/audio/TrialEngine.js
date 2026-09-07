@@ -16,35 +16,57 @@ function randChoice(arr) {
 
 // Overall mix: 40% sine, 12% detuned, 6% noise, 42% clean instrument.
 // Drill sessions bypass detuned and noise entirely (always clean instrument).
-function pickStimulusType(isDrill = false) {
+const STIM_WEIGHTS = { sine: 0.40, detuned: 0.12, noise: 0.06, instrument: 0.42 };
+
+function pickStimulusType(isDrill = false, allowedTypes = null) {
   if (isDrill) return 'instrument';
-  const roll = Math.random();
-  if (roll < 0.40) return 'sine';
-  if (roll < 0.52) return 'detuned';
-  if (roll < 0.58) return 'noise';
-  return 'instrument';
+  const types = allowedTypes && allowedTypes.length > 0 ? allowedTypes : Object.keys(STIM_WEIGHTS);
+  if (types.length === 1) return types[0];
+  const total = types.reduce((sum, t) => sum + STIM_WEIGHTS[t], 0);
+  let r = Math.random() * total;
+  for (const t of types) {
+    r -= STIM_WEIGHTS[t];
+    if (r <= 0) return t;
+  }
+  return types[types.length - 1];
+}
+
+// Weighted random pick from `notes` using per-note weights (need not sum to 1).
+// Falls back to uniform random when weights are missing or all zero.
+function pickWeighted(notes, weights) {
+  const total = notes.reduce((sum, n) => sum + (weights[n] || 0), 0);
+  if (total <= 0) return randChoice(notes);
+  let r = Math.random() * total;
+  for (const n of notes) {
+    r -= (weights[n] || 0);
+    if (r <= 0) return n;
+  }
+  return notes[notes.length - 1];
 }
 
 // Generates the next trial spec given active notes and level.
 // When adaptiveStats is provided it drives all selection dimensions;
 // otherwise falls back to adversarial pick at level 12 or uniform random.
-export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs, perNoteAccuracy = {}, noiseScramble = false }) {
+export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSession, confusionMatrix, sessionType, adaptiveStats, responseWindowMs, perNoteAccuracy = {}, noiseScramble = false, customWeights = null, customOutOfSetProb = null, allowedStimTypes = null }) {
   const isDrill = sessionType === 'drill';
 
   // ── Chroma ────────────────────────────────────────────────────────────────
   // "Not In Set" (Other): sample outside the active set S so users can't win
-  // by process-of-elimination. P(OutOfSet) = 1/(k+1) for k=|S|. Disabled when
-  // S already covers all 12 chromas (complement empty — first occurs at
+  // by process-of-elimination. P(OutOfSet) = 1/(k+1) for k=|S|, unless a
+  // custom mode session supplies an explicit override. Disabled when S
+  // already covers all 12 chromas (complement empty — first occurs at
   // level 11, since LEVEL_NOTES[11] === LEVEL_NOTES[12] === CHROMAS).
   const k = activeNotes.length;
   const canGoOutOfSet = k < CHROMAS.length;
-  const pOut = canGoOutOfSet ? 1 / (k + 1) : 0;
+  const pOut = !canGoOutOfSet ? 0 : (customOutOfSetProb != null ? customOutOfSetProb : 1 / (k + 1));
   const isOutOfSet = canGoOutOfSet && Math.random() < pOut;
 
   let targetChroma;
   if (isOutOfSet) {
     const complement = CHROMAS.filter(c => !activeNotes.includes(c));
     targetChroma = randChoice(complement);
+  } else if (customWeights) {
+    targetChroma = pickWeighted(activeNotes, customWeights);
   } else if (adaptiveStats) {
     targetChroma = adaptiveStats.pickNote(activeNotes);
   } else if (level === 12 && confusionMatrix) {
@@ -63,12 +85,20 @@ export function generateTrial({ activeNotes, level, instrumentId, trialIndexInSe
     : randInt(reg.min, reg.max);
 
   // ── Stimulus type ─────────────────────────────────────────────────────────
-  let stimType = adaptiveStats
-    ? adaptiveStats.pickStimType(targetChroma, isDrill)
-    : pickStimulusType(isDrill);
+  // An explicit allowedStimTypes list (custom mode) takes priority over
+  // adaptive stim-type selection so the user's sine/noise/detune toggles
+  // are always respected, regardless of adaptiveMode.
+  let stimType = allowedStimTypes
+    ? pickStimulusType(false, allowedStimTypes)
+    : adaptiveStats
+      ? adaptiveStats.pickStimType(targetChroma, isDrill)
+      : pickStimulusType(isDrill);
 
-  // Noise Scramble toggle: force every trial to be a noise-masked note.
-  if (noiseScramble) stimType = 'noise';
+  // Noise Scramble toggle: force every trial to be a noise-masked note
+  // (skipped when custom mode has explicitly disallowed noise).
+  if (noiseScramble && (!allowedStimTypes || allowedStimTypes.includes('noise'))) {
+    stimType = 'noise';
+  }
 
   // ── Detuned params ────────────────────────────────────────────────────────
   let centOffset = 0;

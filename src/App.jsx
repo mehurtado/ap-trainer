@@ -26,6 +26,7 @@ export default function App() {
         onAmbient={() => g.setScreen('ambient')}
         onSetLevel={g.setLevel}
         onStartDrill={g.startDrill}
+        onStartCustom={g.startCustom}
         onStartProgression={g.startProgression}
         theme={theme}
         onToggleTheme={toggleTheme}

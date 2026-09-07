@@ -102,3 +102,44 @@ test('generateTrial with level 12 and confusionMatrix uses adversarialPick', () 
   const trial = generateTrial(params);
   assert.ok(activeNotes.includes(trial.targetChroma));
 });
+
+test('generateTrial with customWeights heavily favors the highest-weighted note', (t) => {
+  t.mock.method(Math, 'random', () => 0.99); // stays in-set
+  const activeNotes = ['C', 'E', 'G'];
+  const counts = { C: 0, E: 0, G: 0 };
+  for (let i = 0; i < 200; i++) {
+    const trial = generateTrial({
+      activeNotes, level: 1, instrumentId: 'piano', trialIndexInSession: i,
+      confusionMatrix: new ConfusionMatrix(), sessionType: 'custom',
+      customWeights: { C: 1, E: 1, G: 100 }, customOutOfSetProb: 0,
+    });
+    counts[trial.targetChroma]++;
+  }
+  assert.ok(counts.G > counts.C && counts.G > counts.E, 'G should dominate with weight 100 vs 1');
+});
+
+test('generateTrial with customOutOfSetProb overrides the default 1/(k+1) rate', (t) => {
+  const activeNotes = ['C', 'E', 'G'];
+  const seq = [0.5, 0.5]; // [0] < customOutOfSetProb=1 always true, [1] picks complement note
+  let call = 0;
+  t.mock.method(Math, 'random', () => seq[call++] ?? 0.9);
+  const trial = generateTrial({
+    activeNotes, level: 1, instrumentId: 'piano', trialIndexInSession: 0,
+    confusionMatrix: new ConfusionMatrix(), sessionType: 'custom',
+    customOutOfSetProb: 1,
+  });
+  assert.strictEqual(trial.isOutOfSet, true);
+  assert.ok(!activeNotes.includes(trial.targetChroma));
+});
+
+test('generateTrial with allowedStimTypes restricts stimType to the allowed set', () => {
+  const activeNotes = ['C', 'E', 'G'];
+  for (let i = 0; i < 30; i++) {
+    const trial = generateTrial({
+      activeNotes, level: 1, instrumentId: 'piano', trialIndexInSession: i,
+      confusionMatrix: new ConfusionMatrix(), sessionType: 'custom',
+      customOutOfSetProb: 0, allowedStimTypes: ['instrument'],
+    });
+    assert.strictEqual(trial.stimType, 'instrument');
+  }
+});

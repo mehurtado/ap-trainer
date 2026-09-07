@@ -3,6 +3,8 @@ import { CHROMAS } from '../audio/constants.js';
 
 const MAX_LEVEL = 12;
 
+const DEFAULT_WEIGHT = 50;
+
 export default function HomeScreen({
   level,
   streak,
@@ -10,6 +12,7 @@ export default function HomeScreen({
   onStartColdStart,
   onStartMicro,
   onStartDrill,
+  onStartCustom,
   onStartProgression,
   onDashboard,
   onAmbient,
@@ -25,6 +28,60 @@ export default function HomeScreen({
 }) {
   const [showDrillPicker, setShowDrillPicker] = useState(false);
   const [pickedNotes, setPickedNotes] = useState([]);
+
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [customWeights, setCustomWeights] = useState({}); // { chroma: 0-100 }
+  const [outOfSetPct, setOutOfSetPct] = useState(0);
+  const [allowSine, setAllowSine] = useState(false);
+  const [allowNoise, setAllowNoise] = useState(false);
+  const [allowDetune, setAllowDetune] = useState(false);
+
+  const customNotes = Object.keys(customWeights);
+  const customTotal = customNotes.reduce((sum, n) => sum + customWeights[n], 0);
+
+  function toggleCustomNote(note) {
+    setCustomWeights(prev => {
+      if (note in prev) {
+        const next = { ...prev };
+        delete next[note];
+        return next;
+      }
+      return { ...prev, [note]: DEFAULT_WEIGHT };
+    });
+  }
+
+  function setCustomWeight(note, value) {
+    setCustomWeights(prev => ({ ...prev, [note]: value }));
+  }
+
+  function openCustomPicker() {
+    setShowCustomPicker(true);
+    setCustomWeights({});
+    setOutOfSetPct(0);
+    setAllowSine(false);
+    setAllowNoise(false);
+    setAllowDetune(false);
+  }
+
+  function closeCustomPicker() {
+    setShowCustomPicker(false);
+  }
+
+  function startCustom() {
+    const weights = {};
+    for (const n of customNotes) weights[n] = customWeights[n];
+    const allowedStimTypes = ['instrument'];
+    if (allowSine) allowedStimTypes.push('sine');
+    if (allowNoise) allowedStimTypes.push('noise');
+    if (allowDetune) allowedStimTypes.push('detuned');
+    onStartCustom({
+      notes: customNotes,
+      weights,
+      outOfSetProb: customNotes.length < CHROMAS.length ? outOfSetPct / 100 : 0,
+      allowedStimTypes,
+    });
+    closeCustomPicker();
+  }
 
   function toggleNote(note) {
     setPickedNotes(prev => {
@@ -149,6 +206,89 @@ export default function HomeScreen({
               Chord Progressions
               <span className="btn-sub">Identify the key · 3–6 chords</span>
             </button>
+
+            <button
+              className={`session-btn micro${showCustomPicker ? ' binary-active' : ''}`}
+              onClick={showCustomPicker ? closeCustomPicker : openCustomPicker}
+            >
+              Custom Mode
+              <span className="btn-sub">Pick notes & weight probabilities · no advancement</span>
+            </button>
+
+            {showCustomPicker && (
+              <div className="custom-picker">
+                <div className="binary-picker-label">
+                  {customNotes.length === 0 ? 'Pick one or more notes' : `${customNotes.length} note${customNotes.length > 1 ? 's' : ''} selected`}
+                </div>
+                <div className="binary-note-grid">
+                  {CHROMAS.map(note => (
+                    <button
+                      key={note}
+                      className={`binary-note-btn${note in customWeights ? ' selected' : ''}`}
+                      onClick={() => toggleCustomNote(note)}
+                    >
+                      {note}
+                    </button>
+                  ))}
+                </div>
+
+                {customNotes.length > 0 && (
+                  <div className="custom-sliders">
+                    {customNotes.map(note => {
+                      const pct = customTotal > 0 ? Math.round((customWeights[note] / customTotal) * 100) : 0;
+                      return (
+                        <div className="custom-slider-row" key={note}>
+                          <span className="custom-slider-label">{note}</span>
+                          <input
+                            type="range"
+                            min="1"
+                            max="100"
+                            value={customWeights[note]}
+                            onChange={e => setCustomWeight(note, Number(e.target.value))}
+                          />
+                          <span className="custom-slider-value">{pct}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {customNotes.length > 0 && customNotes.length < CHROMAS.length && (
+                  <div className="custom-slider-row">
+                    <span className="custom-slider-label">Out-of-set</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={outOfSetPct}
+                      onChange={e => setOutOfSetPct(Number(e.target.value))}
+                    />
+                    <span className="custom-slider-value">{outOfSetPct}%</span>
+                  </div>
+                )}
+
+                <div className="custom-toggle-row">
+                  <label className="custom-checkbox">
+                    <input type="checkbox" checked={allowSine} onChange={e => setAllowSine(e.target.checked)} />
+                    Sine tones
+                  </label>
+                  <label className="custom-checkbox">
+                    <input type="checkbox" checked={allowNoise} onChange={e => setAllowNoise(e.target.checked)} />
+                    Noise-masked
+                  </label>
+                  <label className="custom-checkbox">
+                    <input type="checkbox" checked={allowDetune} onChange={e => setAllowDetune(e.target.checked)} />
+                    Detuned
+                  </label>
+                </div>
+
+                {customNotes.length >= 1 && (
+                  <button className="session-btn primary" onClick={startCustom}>
+                    Start →
+                  </button>
+                )}
+              </div>
+            )}
 
             {showDrillPicker && (
               <div className="binary-picker">

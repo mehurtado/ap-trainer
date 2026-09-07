@@ -62,6 +62,7 @@ export function useGameState() {
   const wipeTimer = useRef(null);
   const lastTrialTime = useRef(null);
   const drillNotesRef = useRef(null);
+  const customConfigRef = useRef(null);
   const adaptiveStatsRef = useRef(null);
   const perNoteAccuracyRef = useRef({});
   const progressionPlayingRef = useRef(false);
@@ -145,6 +146,11 @@ export function useGameState() {
     startDrill(notes);
   }
 
+  function beginCustom(config) {
+    audioEngine.initSync();
+    startCustom(config);
+  }
+
   function beginProgression() {
     audioEngine.initSync();
     startProgressionSession();
@@ -188,6 +194,21 @@ export function useGameState() {
     await loadPerTrialState();
     setScreen('trial');
     launchTrial(0, 'drill', false);
+  }
+
+  // config: { notes: string[], weights: {chroma: number}, outOfSetProb: number, allowedStimTypes: string[] }
+  async function startCustom(config) {
+    customConfigRef.current = config;
+    setSessionType('custom');
+    setTrialIndex(0);
+    setRecentResults([]);
+    setConsecutiveResults([]);
+    setSessionFatigue(false);
+    setConsecutiveCorrectTiming(0);
+    setIsColdStart(false);
+    await loadPerTrialState();
+    setScreen('trial');
+    launchTrial(0, 'custom', false);
   }
 
   // ── Chord progression session ─────────────────────────────────────────────
@@ -319,9 +340,12 @@ export function useGameState() {
 
   async function launchTrial(idx, sessType, cold) {
     const inst = INSTRUMENTS[Math.floor(Math.random() * INSTRUMENTS.length)];
+    const customConfig = sessType === 'custom' ? customConfigRef.current : null;
     const notes = (sessType === 'drill' && drillNotesRef.current)
       ? drillNotesRef.current
-      : LEVEL_NOTES[level] || CHROMAS;
+      : customConfig
+        ? customConfig.notes
+        : LEVEL_NOTES[level] || CHROMAS;
     // Ensure response window bounds in case of unexpected state before trial generated
     let currentWindowMs = responseWindowMs;
     const { minMs, maxMs } = getWindowBounds(level);
@@ -343,6 +367,9 @@ export function useGameState() {
       responseWindowMs: currentWindowMs,
       perNoteAccuracy: perNoteAccuracyRef.current,
       noiseScramble: noiseScrambleModeState,
+      customWeights: customConfig ? customConfig.weights : null,
+      customOutOfSetProb: customConfig ? customConfig.outOfSetProb : null,
+      allowedStimTypes: customConfig ? customConfig.allowedStimTypes : null,
     });
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
@@ -453,7 +480,7 @@ export function useGameState() {
     // this pacing proves too harsh for users weak specifically at rejection
     // (mirrors how epsMin/wMax in pickMasteryWeighted are flagged as
     // tunable starting points, not fixed constants).
-    if (trial.sessionType !== 'drill') {
+    if (trial.sessionType !== 'drill' && trial.sessionType !== 'custom') {
       const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
       if (last50.length >= ADVANCEMENT_TRIALS) {
         const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
@@ -477,7 +504,7 @@ export function useGameState() {
     setMeta('lastTrialTime', Date.now());
 
     // Timing staircase update
-    if (trialIndex >= WARMUP_TRIALS && trial.sessionType !== 'drill') {
+    if (trialIndex >= WARMUP_TRIALS && trial.sessionType !== 'drill' && trial.sessionType !== 'custom') {
       const { minMs, maxMs } = getWindowBounds(level);
       if (!correct || isTimeout) {
         setConsecutiveCorrectTiming(0);
@@ -557,7 +584,7 @@ export function useGameState() {
       setScreen('home');
       return;
     }
-    if (sessionFatigue && sessionType !== 'drill') {
+    if (sessionFatigue && sessionType !== 'drill' && sessionType !== 'custom') {
       setScreen('home');
       return;
     }
@@ -625,6 +652,7 @@ export function useGameState() {
     startSession: beginSession,
     startMicro: beginMicro,
     startDrill: beginDrill,
+    startCustom: beginCustom,
     startProgression: beginProgression,
     currentProgression,
     audioEndMs,

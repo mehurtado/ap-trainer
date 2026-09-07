@@ -377,6 +377,61 @@ body {
   background: color-mix(in srgb, var(--accent) 16%, var(--bg3));
 }
 
+/* Custom mode picker */
+.custom-picker {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-slider-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.custom-slider-label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.custom-slider-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.custom-slider-value {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.custom-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.custom-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
 /* ── Trial ────────────────────────────────────────────────────────────────── */
 .trial-screen { gap: 20px; }
 
@@ -1007,6 +1062,7 @@ body {
     gap: 14px;
   }
   .binary-picker { grid-column: 1 / -1; }
+  .custom-picker { grid-column: 1 / -1; }
 
   .dash-cols {
     grid-template-columns: 1fr 1fr;
