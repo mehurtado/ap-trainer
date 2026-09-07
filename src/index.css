@@ -396,7 +396,7 @@ body {
 
 .custom-slider-row {
   display: grid;
-  grid-template-columns: 40px 1fr 44px;
+  grid-template-columns: 40px 1fr 44px 24px;
   align-items: center;
   gap: 10px;
 }
@@ -411,10 +411,36 @@ body {
   accent-color: var(--accent);
 }
 
+.custom-slider-row input[type="range"]:disabled {
+  opacity: 0.45;
+}
+
 .custom-slider-value {
   font-size: 12px;
   color: var(--text-dim);
   text-align: right;
+}
+
+.lock-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.08s, border-color 0.08s, color 0.08s;
+}
+.lock-btn:hover { border-color: var(--accent); color: var(--text); }
+.lock-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .custom-toggle-row {

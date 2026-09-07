@@ -30,28 +30,40 @@ function proportionalSplit(source, keys, total) {
 }
 
 // Removes `key` from a 0-100 locked distribution, handing its share back
-// to the remaining keys in proportion to what they already had.
-function removeFromDistribution(dist, key) {
+// to the remaining unlocked keys in proportion to what they already had.
+// Locked keys keep their exact value untouched.
+function removeFromDistribution(dist, key, lockedKeys) {
   if (!(key in dist)) return dist;
   const rest = { ...dist };
   delete rest[key];
   const restKeys = Object.keys(rest);
   if (restKeys.length === 0) return {};
-  return proportionalSplit(rest, restKeys, 100);
+  const unlockedKeys = restKeys.filter(k => !lockedKeys[k]);
+  if (unlockedKeys.length === 0) {
+    // Everything left is locked, but locked shares no longer sum to 100
+    // now that `key` is gone — scale them all up to fill the gap.
+    return proportionalSplit(rest, restKeys, 100);
+  }
+  const lockedTotal = restKeys.filter(k => lockedKeys[k]).reduce((s, k) => s + rest[k], 0);
+  const shrunk = proportionalSplit(rest, unlockedKeys, 100 - lockedTotal);
+  return { ...rest, ...shrunk };
 }
 
 // Adds `key` to a locked distribution with a fair share, shrinking the
-// existing keys proportionally to make room. When adding this key covers
-// every chroma, out-of-set is meaningless — its share (if any) is folded
-// back into the notes.
-function addToDistribution(dist, key, isFullChromaSet) {
+// existing unlocked keys proportionally to make room (locked keys are left
+// alone). When adding this key covers every chroma, out-of-set is
+// meaningless — its share (if unlocked) is folded back into the notes.
+function addToDistribution(dist, key, isFullChromaSet, lockedKeys) {
   const existingKeys = Object.keys(dist);
   if (existingKeys.length === 0) return { [key]: 100 };
-  const newShare = Math.round(100 / (existingKeys.length + 1));
-  const shrunk = proportionalSplit(dist, existingKeys, 100 - newShare);
-  let next = { ...shrunk, [key]: newShare };
-  if (isFullChromaSet && OUT_OF_SET in next) {
-    next = removeFromDistribution(next, OUT_OF_SET);
+  const unlockedKeys = existingKeys.filter(k => !lockedKeys[k]);
+  const lockedTotal = existingKeys.filter(k => lockedKeys[k]).reduce((s, k) => s + dist[k], 0);
+  const room = 100 - lockedTotal;
+  const newShare = Math.min(Math.round(100 / (existingKeys.length + 1)), room);
+  const shrunk = proportionalSplit(dist, unlockedKeys, room - newShare);
+  let next = { ...dist, ...shrunk, [key]: newShare };
+  if (isFullChromaSet && OUT_OF_SET in next && !lockedKeys[OUT_OF_SET]) {
+    next = removeFromDistribution(next, OUT_OF_SET, lockedKeys);
   }
   return next;
 }
@@ -82,6 +94,7 @@ export default function HomeScreen({
 
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [distribution, setDistribution] = useState({}); // { chroma|outOfSet: 0-100 }, always sums to 100
+  const [locked, setLocked] = useState({}); // { chroma|outOfSet: true } — held fixed while other sliders move
   const [allowSine, setAllowSine] = useState(false);
   const [allowNoise, setAllowNoise] = useState(false);
   const [allowDetune, setAllowDetune] = useState(false);
@@ -92,33 +105,53 @@ export default function HomeScreen({
   function toggleCustomNote(note) {
     setDistribution(prev => {
       if (note in prev) {
-        const next = removeFromDistribution(prev, note);
+        const next = removeFromDistribution(prev, note, locked);
         const stillHasNotes = Object.keys(next).some(k => k !== OUT_OF_SET);
         return stillHasNotes ? next : {};
       }
       const notesAfter = Object.keys(prev).filter(k => k !== OUT_OF_SET).length + 1;
-      return addToDistribution(prev, note, notesAfter === CHROMAS.length);
+      return addToDistribution(prev, note, notesAfter === CHROMAS.length, locked);
+    });
+    setLocked(prev => {
+      if (!(note in prev)) return prev;
+      const next = { ...prev };
+      delete next[note];
+      return next;
     });
   }
 
+  function toggleLock(key) {
+    setLocked(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
   // Dragging one slider to `value` takes the difference out of (or gives it
-  // back to) every other slider, in proportion to their current shares — so
-  // the slider you're holding always shows exactly the value you set it to,
-  // and stays there until a different slider is moved.
+  // back to) every other UNLOCKED slider, in proportion to their current
+  // shares — so the slider you're holding always shows exactly the value
+  // you set it to, and stays there until a different slider is moved.
+  // Locked sliders are held fixed so you can tune the rest around them.
   function setSliderValue(key, rawValue) {
+    if (locked[key]) return;
     setDistribution(prev => {
       const dist = key in prev ? prev : { ...prev, [key]: 0 };
       const otherKeys = Object.keys(dist).filter(k => k !== key);
       if (otherKeys.length === 0) return { [key]: 100 };
-      const newValue = Math.max(0, Math.min(100, rawValue));
-      const shrunk = proportionalSplit(dist, otherKeys, 100 - newValue);
-      return { ...shrunk, [key]: newValue };
+      const lockedOtherKeys = otherKeys.filter(k => locked[k]);
+      const unlockedOtherKeys = otherKeys.filter(k => !locked[k]);
+      const lockedTotal = lockedOtherKeys.reduce((s, k) => s + dist[k], 0);
+      const maxValue = 100 - lockedTotal;
+      const newValue = Math.max(0, Math.min(rawValue, maxValue));
+      if (unlockedOtherKeys.length === 0) {
+        return { ...dist, [key]: maxValue };
+      }
+      const shrunk = proportionalSplit(dist, unlockedOtherKeys, maxValue - newValue);
+      return { ...dist, ...shrunk, [key]: newValue };
     });
   }
 
   function openCustomPicker() {
     setShowCustomPicker(true);
     setDistribution({});
+    setLocked({});
     setAllowSine(false);
     setAllowNoise(false);
     setAllowDetune(false);
@@ -303,9 +336,19 @@ export default function HomeScreen({
                           min="0"
                           max="100"
                           value={distribution[note]}
+                          disabled={!!locked[note]}
                           onChange={e => setSliderValue(note, Number(e.target.value))}
                         />
                         <span className="custom-slider-value">{distribution[note]}%</span>
+                        <button
+                          type="button"
+                          className={`lock-btn${locked[note] ? ' active' : ''}`}
+                          onClick={() => toggleLock(note)}
+                          title={locked[note] ? 'Unlock' : 'Lock'}
+                          aria-label={locked[note] ? `Unlock ${note}` : `Lock ${note}`}
+                        >
+                          {locked[note] ? '◉' : '○'}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -319,9 +362,19 @@ export default function HomeScreen({
                       min="0"
                       max="100"
                       value={outOfSetPct}
+                      disabled={!!locked[OUT_OF_SET]}
                       onChange={e => setSliderValue(OUT_OF_SET, Number(e.target.value))}
                     />
                     <span className="custom-slider-value">{outOfSetPct}%</span>
+                    <button
+                      type="button"
+                      className={`lock-btn${locked[OUT_OF_SET] ? ' active' : ''}`}
+                      onClick={() => toggleLock(OUT_OF_SET)}
+                      title={locked[OUT_OF_SET] ? 'Unlock' : 'Lock'}
+                      aria-label={locked[OUT_OF_SET] ? 'Unlock out-of-set' : 'Lock out-of-set'}
+                    >
+                      {locked[OUT_OF_SET] ? '◉' : '○'}
+                    </button>
                   </div>
                 )}
 
