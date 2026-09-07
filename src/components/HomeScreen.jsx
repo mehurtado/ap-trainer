@@ -235,7 +235,8 @@ export default function HomeScreen({
                 {customNotes.length > 0 && (
                   <div className="custom-sliders">
                     {customNotes.map(note => {
-                      const pct = customTotal > 0 ? Math.round((customWeights[note] / customTotal) * 100) : 0;
+                      const inSetShare = customTotal > 0 ? customWeights[note] / customTotal : 0;
+                      const pct = Math.round(inSetShare * (1 - outOfSetPct / 100) * 100);
                       return (
                         <div className="custom-slider-row" key={note}>
                           <span className="custom-slider-label">{note}</span>
