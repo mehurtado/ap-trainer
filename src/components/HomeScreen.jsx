@@ -3,7 +3,58 @@ import { CHROMAS } from '../audio/constants.js';
 
 const MAX_LEVEL = 12;
 
-const DEFAULT_WEIGHT = 50;
+const OUT_OF_SET = 'outOfSet';
+
+// Splits `total` across `keys` in proportion to their values in `source`
+// (falling back to an even split when source has nothing to go on). The
+// last key absorbs any rounding remainder so the result always sums to
+// exactly `total` — the invariant every slider in the custom picker relies
+// on to keep its handle position and displayed % in sync.
+function proportionalSplit(source, keys, total) {
+  if (keys.length === 0) return {};
+  const oldTotal = keys.reduce((sum, k) => sum + (source[k] || 0), 0);
+  const result = {};
+  let used = 0;
+  keys.forEach((k, i) => {
+    if (i === keys.length - 1) {
+      result[k] = total - used;
+      return;
+    }
+    const v = oldTotal > 0
+      ? Math.round(((source[k] || 0) / oldTotal) * total)
+      : Math.floor(total / keys.length);
+    result[k] = v;
+    used += v;
+  });
+  return result;
+}
+
+// Removes `key` from a 0-100 locked distribution, handing its share back
+// to the remaining keys in proportion to what they already had.
+function removeFromDistribution(dist, key) {
+  if (!(key in dist)) return dist;
+  const rest = { ...dist };
+  delete rest[key];
+  const restKeys = Object.keys(rest);
+  if (restKeys.length === 0) return {};
+  return proportionalSplit(rest, restKeys, 100);
+}
+
+// Adds `key` to a locked distribution with a fair share, shrinking the
+// existing keys proportionally to make room. When adding this key covers
+// every chroma, out-of-set is meaningless — its share (if any) is folded
+// back into the notes.
+function addToDistribution(dist, key, isFullChromaSet) {
+  const existingKeys = Object.keys(dist);
+  if (existingKeys.length === 0) return { [key]: 100 };
+  const newShare = Math.round(100 / (existingKeys.length + 1));
+  const shrunk = proportionalSplit(dist, existingKeys, 100 - newShare);
+  let next = { ...shrunk, [key]: newShare };
+  if (isFullChromaSet && OUT_OF_SET in next) {
+    next = removeFromDistribution(next, OUT_OF_SET);
+  }
+  return next;
+}
 
 export default function HomeScreen({
   level,
@@ -30,34 +81,44 @@ export default function HomeScreen({
   const [pickedNotes, setPickedNotes] = useState([]);
 
   const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [customWeights, setCustomWeights] = useState({}); // { chroma: 0-100 }
-  const [outOfSetPct, setOutOfSetPct] = useState(0);
+  const [distribution, setDistribution] = useState({}); // { chroma|outOfSet: 0-100 }, always sums to 100
   const [allowSine, setAllowSine] = useState(false);
   const [allowNoise, setAllowNoise] = useState(false);
   const [allowDetune, setAllowDetune] = useState(false);
 
-  const customNotes = Object.keys(customWeights);
-  const customTotal = customNotes.reduce((sum, n) => sum + customWeights[n], 0);
+  const customNotes = CHROMAS.filter(c => c in distribution);
+  const outOfSetPct = distribution[OUT_OF_SET] || 0;
 
   function toggleCustomNote(note) {
-    setCustomWeights(prev => {
+    setDistribution(prev => {
       if (note in prev) {
-        const next = { ...prev };
-        delete next[note];
-        return next;
+        const next = removeFromDistribution(prev, note);
+        const stillHasNotes = Object.keys(next).some(k => k !== OUT_OF_SET);
+        return stillHasNotes ? next : {};
       }
-      return { ...prev, [note]: DEFAULT_WEIGHT };
+      const notesAfter = Object.keys(prev).filter(k => k !== OUT_OF_SET).length + 1;
+      return addToDistribution(prev, note, notesAfter === CHROMAS.length);
     });
   }
 
-  function setCustomWeight(note, value) {
-    setCustomWeights(prev => ({ ...prev, [note]: value }));
+  // Dragging one slider to `value` takes the difference out of (or gives it
+  // back to) every other slider, in proportion to their current shares — so
+  // the slider you're holding always shows exactly the value you set it to,
+  // and stays there until a different slider is moved.
+  function setSliderValue(key, rawValue) {
+    setDistribution(prev => {
+      const dist = key in prev ? prev : { ...prev, [key]: 0 };
+      const otherKeys = Object.keys(dist).filter(k => k !== key);
+      if (otherKeys.length === 0) return { [key]: 100 };
+      const newValue = Math.max(0, Math.min(100, rawValue));
+      const shrunk = proportionalSplit(dist, otherKeys, 100 - newValue);
+      return { ...shrunk, [key]: newValue };
+    });
   }
 
   function openCustomPicker() {
     setShowCustomPicker(true);
-    setCustomWeights({});
-    setOutOfSetPct(0);
+    setDistribution({});
     setAllowSine(false);
     setAllowNoise(false);
     setAllowDetune(false);
@@ -69,7 +130,7 @@ export default function HomeScreen({
 
   function startCustom() {
     const weights = {};
-    for (const n of customNotes) weights[n] = customWeights[n];
+    for (const n of customNotes) weights[n] = distribution[n];
     const allowedStimTypes = ['instrument'];
     if (allowSine) allowedStimTypes.push('sine');
     if (allowNoise) allowedStimTypes.push('noise');
@@ -224,7 +285,7 @@ export default function HomeScreen({
                   {CHROMAS.map(note => (
                     <button
                       key={note}
-                      className={`binary-note-btn${note in customWeights ? ' selected' : ''}`}
+                      className={`binary-note-btn${note in distribution ? ' selected' : ''}`}
                       onClick={() => toggleCustomNote(note)}
                     >
                       {note}
@@ -234,23 +295,19 @@ export default function HomeScreen({
 
                 {customNotes.length > 0 && (
                   <div className="custom-sliders">
-                    {customNotes.map(note => {
-                      const inSetShare = customTotal > 0 ? customWeights[note] / customTotal : 0;
-                      const pct = Math.round(inSetShare * (1 - outOfSetPct / 100) * 100);
-                      return (
-                        <div className="custom-slider-row" key={note}>
-                          <span className="custom-slider-label">{note}</span>
-                          <input
-                            type="range"
-                            min="1"
-                            max="100"
-                            value={customWeights[note]}
-                            onChange={e => setCustomWeight(note, Number(e.target.value))}
-                          />
-                          <span className="custom-slider-value">{pct}%</span>
-                        </div>
-                      );
-                    })}
+                    {customNotes.map(note => (
+                      <div className="custom-slider-row" key={note}>
+                        <span className="custom-slider-label">{note}</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={distribution[note]}
+                          onChange={e => setSliderValue(note, Number(e.target.value))}
+                        />
+                        <span className="custom-slider-value">{distribution[note]}%</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -262,7 +319,7 @@ export default function HomeScreen({
                       min="0"
                       max="100"
                       value={outOfSetPct}
-                      onChange={e => setOutOfSetPct(Number(e.target.value))}
+                      onChange={e => setSliderValue(OUT_OF_SET, Number(e.target.value))}
                     />
                     <span className="custom-slider-value">{outOfSetPct}%</span>
                   </div>
