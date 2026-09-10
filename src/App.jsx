@@ -17,14 +17,14 @@ export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   return manual
     ? <ManualPractice onReturn={() => setManual(false)} theme={theme} toggleTheme={toggleTheme} />
-    : <Curriculum onManual={() => setManual(true)} />;
+    : <Curriculum onManual={() => setManual(true)} theme={theme} toggleTheme={toggleTheme} />;
 }
 
 function ManualPractice({ onReturn, theme, toggleTheme }) {
   const g = useGameState();
   if (g.screen === 'home') {
     return (
-      <><button onClick={onReturn}>Back to adaptive curriculum</button><HomeScreen manualOnly
+      <><button className="back-btn" onClick={onReturn}>Back to training</button><HomeScreen manualOnly
         level={g.level}
         streak={g.streak}
         onStartEvening={() => g.startSession('evening')}
