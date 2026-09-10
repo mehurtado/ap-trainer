@@ -7,6 +7,7 @@ class AudioEngine {
   constructor() {
     this.ctx = null;
     this.sampleCache = {};
+    this.onsetOffsetCache = {};
     this.noiseCache = {};
     this.masterGain = null;
   }
@@ -58,10 +59,34 @@ class AudioEngine {
       const arrayBuf = await res.arrayBuffer();
       const audioBuf = await this.ctx.decodeAudioData(arrayBuf);
       this.sampleCache[key] = audioBuf;
+      this.onsetOffsetCache[key] = this._measureOnsetOffset(audioBuf);
       return audioBuf;
     } catch (e) {
       return null;
     }
+  }
+
+  // Leading silence/attack ramp varies per sample; measure the first frame
+  // that clears 1% of the buffer's peak so callers can align playback start
+  // to the perceptual onset rather than frame 0.
+  _measureOnsetOffset(buf) {
+    const data = buf.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) {
+      const a = Math.abs(data[i]);
+      if (a > peak) peak = a;
+    }
+    if (peak === 0) return 0;
+    const threshold = peak * 0.01;
+    for (let i = 0; i < data.length; i++) {
+      if (Math.abs(data[i]) >= threshold) return i / buf.sampleRate;
+    }
+    return 0;
+  }
+
+  // Seconds of leading silence/attack for an already-loaded sample.
+  getOnsetOffset(instrumentId, chroma, octave) {
+    return this.onsetOffsetCache[`${instrumentId}/${chroma}${octave}`] ?? 0;
   }
 
   async preloadInstrument(instrumentId) {

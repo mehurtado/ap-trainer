@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/curriculum/curriculum.test.js src/audio/*.test.js src/db/db.test.js"
   },
   "dependencies": {
     "react": "^19.2.5",

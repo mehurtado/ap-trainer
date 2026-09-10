@@ -345,7 +345,7 @@ export default function Dashboard({ onBack }) {
   const restoreInputRef = useRef(null);
 
   useEffect(() => {
-    getAllTrials().then(setTrials);
+    getAllTrials().then(rows => setTrials(rows.filter(t => t.schema_version !== 2 || t.trial_purpose === 'manual')));
   }, []);
 
   // Chord-progression trials are tracked separately from single-note trials so
@@ -406,7 +406,7 @@ export default function Dashboard({ onBack }) {
     try {
       const data = JSON.parse(await file.text());
       const { trials: n, ambient: m } = await importJSON(data);
-      setTrials(await getAllTrials());
+      setTrials((await getAllTrials()).filter(t => t.schema_version !== 2 || t.trial_purpose === 'manual'));
       setRestoreMsg(`Restored ${n} trials, ${m} ambient entries.`);
     } catch (err) {
       setRestoreMsg(`Restore failed: ${err.message}`);

@@ -37,6 +37,7 @@ class MockIDBObjectStore {
       this.data.push(item);
     }
   }
+  put(item) { const key=item.id??item.key; const i=this.data.findIndex(x=>(x.id??x.key)===key); if(i<0)this.data.push(item);else this.data[i]=item; }
   getAll() {
     const req = {};
     setTimeout(() => {
@@ -84,7 +85,7 @@ class MockIDBDatabase {
     };
   }
   createObjectStore(name) {
-    return this.stores[name];
+    return this.stores[name] ??= new MockIDBObjectStore();
   }
   transaction() {
     return new MockIDBTransaction(this.stores);
@@ -142,4 +143,11 @@ test('exportJSON/importJSON round-trips trials and ambient with original timesta
   // Timestamp must be preserved exactly, not overwritten with import time
   // (unlike saveTrial, which always stamps "now").
   assert.strictEqual(imported.timestamp, '2020-01-01T00:00:00.000Z');
+});
+
+test('version 2 backup preserves session, block, epoch and metadata snapshots', async () => {
+ const backup={trials:[{id:'v2-test',schema_version:2,target_pitch:'C',timestamp:'2026-01-01T00:00:00Z'}],sessions:[{id:'session-1',training_epoch:'epoch-1'}],blocks:[{id:'block-1',explicit_response_set:['C','G'],trials:[{target_pitch:'C'}]}],epochs:[{id:'epoch-1'}],meta:[{key:'curriculumEpoch',value:'epoch-1'}]};
+ await importJSON(backup);await importJSON(backup);const exported=await exportJSON();
+ assert.equal(exported.trials.filter(t=>t.id==='v2-test').length,1);
+ for(const key of ['sessions','blocks','epochs','meta'])assert.deepEqual(exported[key],backup[key]);
 });

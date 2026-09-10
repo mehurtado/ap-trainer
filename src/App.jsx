@@ -9,14 +9,22 @@ import AmbientLog from './components/AmbientLog.jsx';
 import ProgressionScreen from './components/ProgressionScreen.jsx';
 import ProgressionFeedback from './components/ProgressionFeedback.jsx';
 import './App.css';
+import { useState } from 'react';
+import Curriculum from './components/Curriculum.jsx';
 
 export default function App() {
-  const g = useGameState();
+  const [manual, setManual] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+  return manual
+    ? <ManualPractice onReturn={() => setManual(false)} theme={theme} toggleTheme={toggleTheme} />
+    : <Curriculum onManual={() => setManual(true)} />;
+}
 
+function ManualPractice({ onReturn, theme, toggleTheme }) {
+  const g = useGameState();
   if (g.screen === 'home') {
     return (
-      <HomeScreen
+      <><button onClick={onReturn}>Back to adaptive curriculum</button><HomeScreen manualOnly
         level={g.level}
         streak={g.streak}
         onStartEvening={() => g.startSession('evening')}
@@ -36,7 +44,7 @@ export default function App() {
         onToggleNotExact={() => g.setNotExactMode(!g.notExactMode)}
         noiseScrambleMode={g.noiseScrambleMode}
         onToggleNoiseScramble={() => g.setNoiseScrambleMode(!g.noiseScrambleMode)}
-      />
+      /></>
     );
   }
 

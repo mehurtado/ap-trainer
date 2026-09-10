@@ -3,29 +3,22 @@ import { audioEngine } from '../audio/AudioEngine.js';
 import { generateTrial, playTrial } from '../audio/TrialEngine.js';
 import { generateProgression, playProgression } from '../audio/ProgressionEngine.js';
 import { MatrixStore } from '../audio/ConfusionMatrix.js';
-import { LEVEL_NOTES, CHROMAS, INSTRUMENTS, chromaOctaveToHz } from '../audio/constants.js';
-import { saveTrial, getAllTrials, getMeta, setMeta } from '../db/db.js';
+import { CHROMAS, INSTRUMENTS, chromaOctaveToHz } from '../audio/constants.js';
+import { saveTrial, getAllTrials, getMeta, setMeta, putRecord } from '../db/db.js';
 import { AdaptiveStats, buildChromaAccuracy } from '../audio/AdaptiveStats.js';
 
 const ADVANCEMENT_TRIALS = 50;
-const ADVANCEMENT_ACCURACY = 0.90;
 const FATIGUE_WINDOW = 5;
 const FATIGUE_THRESHOLD = 0.70;
 const COLD_START_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-const WINDOW_STEP_DOWN_MS = 50;
-const WINDOW_STEP_UP_MS = 75;
-const WARMUP_TRIALS = 4;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function getWindowBounds(level) {
-  return {
-    minMs: Math.max(500, 1200 - (level - 1) * 75),
-    maxMs: Math.max(1100, 2200 - (level - 1) * 50),
-  };
+function getWindowBounds() {
+  return { minMs: 500, maxMs: 3000 };
 }
 
 export function useGameState() {
@@ -45,7 +38,7 @@ export function useGameState() {
   const [showConfidenceOverlay, setShowConfidenceOverlay] = useState(false);
   const [pendingGuess, setPendingGuess] = useState(null);
   const [audioStartMs, setAudioStartMs] = useState(0);
-  const [activeNotes, setActiveNotes] = useState(LEVEL_NOTES[1]);
+  const [activeNotes, setActiveNotes] = useState(CHROMAS);
   const [consecutiveResults, setConsecutiveResults] = useState([]);
   const [notExactModeState, setNotExactModeState] = useState(false);
   const [showDirectionOverlay, setShowDirectionOverlay] = useState(false);
@@ -56,8 +49,10 @@ export function useGameState() {
   const [progressionFeedback, setProgressionFeedback] = useState(null);
   const [progressionPlaying, setProgressionPlaying] = useState(false);
   const [responseWindowMs, setResponseWindowMs] = useState(1500);
-  const [consecutiveCorrectTiming, setConsecutiveCorrectTiming] = useState(0);
+  const [, setConsecutiveCorrectTiming] = useState(0);
 
+  const measurementSession = useRef(null);
+  const measurementBlock = useRef(null);
   const matrixStore = useRef(new MatrixStore());
   const wipeTimer = useRef(null);
   const lastTrialTime = useRef(null);
@@ -79,16 +74,7 @@ export function useGameState() {
     getMeta('responseWindowMs').then(v => { if (v != null) setResponseWindowMs(v); });
   }, []);
 
-  useEffect(() => {
-    setActiveNotes(LEVEL_NOTES[level] || CHROMAS);
-    // Enforce bounds when level changes
-    const { minMs, maxMs } = getWindowBounds(level);
-    setResponseWindowMs(prev => {
-      const newVal = clamp(prev, minMs, maxMs);
-      if (newVal !== prev) setMeta('responseWindowMs', newVal);
-      return newVal;
-    });
-  }, [level]);
+
 
   // Detect cold start
   function checkColdStart() {
@@ -117,7 +103,10 @@ export function useGameState() {
   // adaptiveMode). When adaptiveMode is off, skip building the full
   // AdaptiveStats instance (and its unused instrument/octave/type/direction
   // tallies) and compute only the chroma accuracy we actually need.
-  async function loadPerTrialState() {
+  async function loadPerTrialState(type = 'manual') {
+    const session = { id: crypto.randomUUID(), training_epoch: await getMeta('curriculumEpoch') ?? 'legacy', started_at: new Date().toISOString(), ended_at: null, session_type: type, canonical_condition: false, device_context: navigator.userAgent, optional_notes: 'Manual practice: acquisition context was not measured', schema_version: 2, evidence_policy: 'excluded from canonical estimates until context and audio protocol are comparable' };
+    await putRecord('sessions', session);
+    measurementSession.current = session;
     const trials = await getAllTrials();
     if (adaptiveMode) {
       const stats = new AdaptiveStats(trials);
@@ -165,7 +154,7 @@ export function useGameState() {
     setConsecutiveCorrectTiming(0);
     const cold = checkColdStart();
     setIsColdStart(cold);
-    await loadPerTrialState();
+    await loadPerTrialState(type);
     setScreen('trial');
     launchTrial(0, type, cold);
   }
@@ -233,7 +222,7 @@ export function useGameState() {
     clearTimeout(progressionPlayTimer.current);
     progressionPlayingRef.current = false;
     setProgressionPlaying(false);
-    const notes = LEVEL_NOTES[level] || CHROMAS;
+    const notes = CHROMAS;
     setActiveNotes(notes);
     const prog = generateProgression({ activeNotes: notes, level });
     setCurrentProgression(prog);
@@ -345,7 +334,7 @@ export function useGameState() {
       ? drillNotesRef.current
       : customConfig
         ? customConfig.notes
-        : LEVEL_NOTES[level] || CHROMAS;
+        : CHROMAS;
     // Ensure response window bounds in case of unexpected state before trial generated
     let currentWindowMs = responseWindowMs;
     const { minMs, maxMs } = getWindowBounds(level);
@@ -371,6 +360,9 @@ export function useGameState() {
       customOutOfSetProb: customConfig ? customConfig.outOfSetProb : null,
       allowedStimTypes: customConfig ? customConfig.allowedStimTypes : null,
     });
+    const block = { id: crypto.randomUUID(), session_id: measurementSession.current.id, session_type: sessType, training_epoch: measurementSession.current.training_epoch, block_index: idx, explicit_response_set: [...notes], sampling_distribution: customConfig?.weights ?? null, out_of_set_distribution: null, response_window_ms: currentWindowMs, feedback_policy: 'immediate', scheduler_version: 'manual-1', learner_model_version: '1', stimulus_generator_version: 'legacy-audio-1', schema_version: 2, scheduler_decision: { action: 'user-configured practice' }, scheduler_state_snapshot: { custom_config: customConfig }, trials: [{...trial}], block_length: 1, created_at: new Date().toISOString() };
+    await putRecord('blocks', block);
+    measurementBlock.current = block;
     trial.isColdStart = cold && idx === 0;
     trial.sessionType = sessType;
     trial.activeSetSize = notes.length;
@@ -473,25 +465,6 @@ export function useGameState() {
       newRecent.reduce((a, b) => a + b, 0) / newRecent.length < FATIGUE_THRESHOLD;
     if (fatigue) setSessionFatigue(true);
 
-    // Advancement check (last 50 trials) — disabled in drill mode.
-    // Out-of-set ("Other") trials count toward this window like any other
-    // trial — no special-casing, per spec design intent (Other isn't a
-    // separate mode) and to avoid unrequested complexity. Tunable later if
-    // this pacing proves too harsh for users weak specifically at rejection
-    // (mirrors how epsMin/wMax in pickMasteryWeighted are flagged as
-    // tunable starting points, not fixed constants).
-    if (trial.sessionType !== 'drill' && trial.sessionType !== 'custom') {
-      const last50 = newConsec.slice(-ADVANCEMENT_TRIALS);
-      if (last50.length >= ADVANCEMENT_TRIALS) {
-        const acc = last50.filter(Boolean).length / ADVANCEMENT_TRIALS;
-        if (acc >= ADVANCEMENT_ACCURACY && level < 12) {
-          const newLevel = level + 1;
-          setLevel(newLevel);
-          setMeta('level', newLevel);
-        }
-      }
-    }
-
     // Update streak
     if (trial.isColdStart && correct) {
       const newStreak = streak + 1;
@@ -503,29 +476,14 @@ export function useGameState() {
     lastTrialTime.current = Date.now();
     setMeta('lastTrialTime', Date.now());
 
-    // Timing staircase update
-    if (trialIndex >= WARMUP_TRIALS && trial.sessionType !== 'drill' && trial.sessionType !== 'custom') {
-      const { minMs, maxMs } = getWindowBounds(level);
-      if (!correct || isTimeout) {
-        setConsecutiveCorrectTiming(0);
-        const newWindow = clamp(responseWindowMs + WINDOW_STEP_UP_MS, minMs, maxMs);
-        setResponseWindowMs(newWindow);
-        setMeta('responseWindowMs', newWindow);
-      } else {
-        const nextCorrectCount = consecutiveCorrectTiming + 1;
-        if (nextCorrectCount >= 2) {
-          setConsecutiveCorrectTiming(0);
-          const newWindow = clamp(responseWindowMs - WINDOW_STEP_DOWN_MS, minMs, maxMs);
-          setResponseWindowMs(newWindow);
-          setMeta('responseWindowMs', newWindow);
-        } else {
-          setConsecutiveCorrectTiming(nextCorrectCount);
-        }
-      }
-    }
-
     // Persist trial
     const trialLog = {
+      id: crypto.randomUUID(), schema_version: 2, learner_model_version: '1', scheduler_version: 'manual-1', stimulus_generator_version: 'legacy-audio-1', benchmark_version: null,
+      session_id: measurementSession.current.id, block_id: measurementBlock.current.id, training_epoch: measurementSession.current.training_epoch,
+      canonical_condition: false, trial_purpose: 'manual', evidence_policy: 'noncanonical manual observations; excluded from canonical scheduling',
+      trial_index_session: trialIndex, trial_index_block: 0, explicit_response_set: [...activeNotes], target_pitch: trial.targetChroma, response: isTimeout ? 'TIMEOUT' : chroma, first_response: chroma, correct,
+      octave: trial.octave, timbre: trial.instrument, stimulus_type: trial.stimType, detuning: trial.centOffset, noise_configuration: trial.stimType === 'noise' ? trial.noiseType : null,
+      second_instinct: secondInstinctNote, second_instinct_latency: null, sample_id: null, sample_onset_offset: null, input_method: 'unmeasured', feedback_policy: 'immediate',
       is_cold_start: trial.isColdStart || false,
       target_chroma: trial.targetChroma,
       target_octave: trial.octave,
@@ -623,6 +581,7 @@ export function useGameState() {
     progressionPlayingRef.current = false;
     setProgressionPlaying(false);
     audioEngine.stop();
+    if (measurementSession.current) putRecord('sessions', { ...measurementSession.current, ended_at: new Date().toISOString() }).catch(() => {});
     setScreen('home');
   }
 

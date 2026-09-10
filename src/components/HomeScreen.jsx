@@ -69,6 +69,7 @@ function addToDistribution(dist, key, isFullChromaSet, lockedKeys) {
 }
 
 export default function HomeScreen({
+  manualOnly = false,
   level,
   streak,
   onStartEvening,
@@ -218,7 +219,7 @@ export default function HomeScreen({
 
       <div className="home-layout">
         <aside className="home-side">
-          <div className="stat-row">
+          {!manualOnly && <div className="stat-row">
             <div className="stat">
               <div className="level-selector">
                 <button className="level-arrow" aria-label="Decrease level" onClick={() => onSetLevel(Math.max(1, level - 1))} disabled={level <= 1}>‹</button>
@@ -233,6 +234,7 @@ export default function HomeScreen({
             </div>
           </div>
 
+          }
           <div className="mode-panel">
             <h3 className="panel-label">Modes</h3>
             <div className="adaptive-row">
@@ -240,7 +242,7 @@ export default function HomeScreen({
                 className={`adaptive-btn${adaptiveMode ? ' active' : ''}`}
                 onClick={onToggleAdaptive}
               >
-                {adaptiveMode ? '◉' : '○'} Adaptive
+                {adaptiveMode ? '◉' : '○'} Manual stimulus weighting
               </button>
               {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
             </div>
@@ -273,7 +275,7 @@ export default function HomeScreen({
         <section className="session-panel">
           <h2 className="panel-title">Start a session</h2>
           <div className="session-buttons">
-            <button className="session-btn primary" onClick={onStartColdStart}>
+            {!manualOnly && <><button className="session-btn primary" onClick={onStartColdStart}>
               Cold Start
               <span className="btn-sub">Morning · pure measurement</span>
             </button>
@@ -288,6 +290,7 @@ export default function HomeScreen({
               <span className="btn-sub">Quick practice · no wipe</span>
             </button>
 
+            </>}
             <button
               className={`session-btn micro${showDrillPicker ? ' binary-active' : ''}`}
               onClick={showDrillPicker ? closePicker : openPicker}
