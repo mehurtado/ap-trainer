@@ -1,5 +1,5 @@
 import { CHROMAS, INSTRUMENTS, INSTRUMENT_REGISTERS } from '../audio/constants.js';
-import { VERSIONS } from './model.js';
+import { VERSIONS, shrinkEstimate } from './model.js';
 export const CONFIG = Object.freeze({
   blockLength: 24,
   exploration: .2,
@@ -40,8 +40,15 @@ function candidate(active, model, random) {
     return empirical + model.pitches[p].uncertainty + (active.length ? Math.min(...active.map(q => distance(p, q))) / (1 + model.pitches[p].observation_count) : 0);
   }
 }
-export function schedule(model, previous, seed, config = CONFIG) {
+export function schedule(model, previous, seed, config = CONFIG, context = null) {
   const random = prng(seed);
+  const contextual = p => {
+    const pooled = model.pitches[p], c = pooled.contexts?.[context];
+    if (!c) return pooled;
+    return { ...pooled, accuracy: { ...pooled.accuracy, mean: c.shrunk_accuracy ?? pooled.accuracy.mean },
+      falsePositive: { ...pooled.falsePositive, mean: c.shrunk_false_positive ?? pooled.falsePositive.mean },
+      median_rt: c.median_rt ?? pooled.median_rt };
+  };
   const active = [...(previous?.explicit_response_set ?? [])];
   if (!active.length) {
     active.push(candidate(active, model, random));
@@ -49,13 +56,15 @@ export function schedule(model, previous, seed, config = CONFIG) {
   }
   const comparable = model.configurations?.[[...active].sort().join(',') + '|' + (previous?.response_window_ms ?? config.responseWindow)];
   const states = active.map(p => {
-    const s = model.pitches[p],
+    const s = contextual(p),
       c = comparable?.[p];
     return c ? {
       ...s,
       accuracy: {
         ...s.accuracy,
-        mean: (c.correct + 1) / (c.total + 2),
+        mean: c.contexts?.[context]?.total
+          ? shrinkEstimate(c.contexts[context].correct, c.contexts[context].total, { mean: (c.correct + 1) / (c.total + 2) })
+          : (c.correct + 1) / (c.total + 2),
         evidence: c.total
       }
     } : {
@@ -80,7 +89,7 @@ export function schedule(model, previous, seed, config = CONFIG) {
   const inactive = CHROMAS.filter(p => !active.includes(p));
   const mass = inactive.length ? config.negativeMass : 0;
   const weights = active.map(p => {
-    const s = model.pitches[p];
+    const s = contextual(p);
     const overdue = s.retention.last_probe ? Math.min(1, (model.computed_at - Date.parse(s.retention.last_probe)) / 604800000) : 1;
     return 1 + (1 - s.accuracy.mean) + s.uncertainty + overdue + s.falsePositive.mean;
   });
@@ -125,6 +134,7 @@ export function schedule(model, previous, seed, config = CONFIG) {
     feedback_policy: 'immediate training; probe feedback after block',
     random_seed: seed,
     scheduler_decision: {
+      context,
       action: expand ? 'activate' : 'consolidate',
       balanced_named_accuracy: balanced,
       load,
