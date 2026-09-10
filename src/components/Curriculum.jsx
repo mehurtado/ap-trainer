@@ -167,13 +167,22 @@ export default function Curriculum({
     setView('trial');
     try {
       const ctx = audioEngine.ctx,
-        length = Math.floor(ctx.sampleRate * .3),
+        gapSec = block.trials[i].intertrial_ms / 1000,
+        length = Math.floor(ctx.sampleRate * gapSec),
         buf = ctx.createBuffer(1, length, ctx.sampleRate),
         samples = buf.getChannelData(0);
-      for (let j = 0; j < length; j++) samples[j] = (Math.random() * 2 - 1) * .04;
-      const noise = ctx.createBufferSource();
+      // Mask the whole intertrial gap at an audible level (matching
+      // AudioEngine's established white-noise-mask gain) so the previous
+      // trial's pitch doesn't linger in silence right up to the next onset.
+      for (let j = 0; j < length; j++) samples[j] = (Math.random() * 2 - 1) * .3;
+      const noise = ctx.createBufferSource(),
+        noiseGain = ctx.createGain();
       noise.buffer = buf;
-      noise.connect(audioEngine.masterGain);
+      noiseGain.gain.setValueAtTime(.3, ctx.currentTime);
+      noiseGain.gain.setValueAtTime(.3, ctx.currentTime + gapSec - .05);
+      noiseGain.gain.linearRampToValueAtTime(0, ctx.currentTime + gapSec);
+      noise.connect(noiseGain);
+      noiseGain.connect(audioEngine.masterGain);
       noise.start();
       timer.current = setTimeout(async () => {
         try {
