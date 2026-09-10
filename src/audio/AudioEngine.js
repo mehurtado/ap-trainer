@@ -252,6 +252,7 @@ class AudioEngine {
   }
 
   _playKeySpam(startTime, count = 10, stopTime = null) {
+    const ctx = this.ctx;
     const stop = stopTime || (startTime + 1.5);
     for (let i = 0; i < count; i++) {
       const inst = INSTRUMENTS[Math.floor(Math.random() * INSTRUMENTS.length)];
@@ -262,6 +263,7 @@ class AudioEngine {
       const hz = chromaOctaveToHz(chroma, oct);
       const { chroma: nearChroma, octave: nearOct, detuneOffset } = nearestSample(inst, chroma, oct);
       this.loadSample(inst, nearChroma, nearOct).then(buf => {
+        if (this.ctx !== ctx || ctx.state === 'closed' || ctx.currentTime >= stop) return;
         if (buf) {
           const src = this.ctx.createBufferSource();
           src.buffer = buf;
@@ -285,6 +287,7 @@ class AudioEngine {
   }
 
   _playRandomMelody(startTime, durationSec, instrumentId) {
+    const ctx = this.ctx;
     const notesPerSec = 4;
     const totalNotes = Math.floor(durationSec * notesPerSec);
     const melodyEnd = startTime + durationSec;
@@ -296,6 +299,7 @@ class AudioEngine {
       const hz = chromaOctaveToHz(chroma, oct);
       const { chroma: nearChroma, octave: nearOct, detuneOffset } = nearestSample(instrumentId, chroma, oct);
       this.loadSample(instrumentId, nearChroma, nearOct).then(buf => {
+        if (this.ctx !== ctx || ctx.state === 'closed' || ctx.currentTime >= melodyEnd) return;
         if (buf) {
           const src = this.ctx.createBufferSource();
           src.buffer = buf;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CHROMAS, INSTRUMENTS, nearestSample } from '../audio/constants.js';
+import { CHROMAS, INSTRUMENTS, nearestSample, chromaOctaveToHz } from '../audio/constants.js';
 import { audioEngine } from '../audio/AudioEngine.js';
 import { getAllTrials, getMeta, setMeta, getRecords, putRecord, saveTrial, exportJSON } from '../db/db.js';
 import { estimate, VERSIONS } from '../curriculum/model.js';
@@ -7,12 +7,13 @@ import { schedule, generateSequence } from '../curriculum/scheduler.js';
 import { benchmark } from '../curriculum/benchmark.js';
 import { playStimulus } from '../curriculum/audio.js';
 import './Curriculum.css';
+import WipeScreen from './WipeScreen.jsx';
 import CurriculumAnalytics from './CurriculumAnalytics.jsx';
 const pct = v => v == null ? '—' : `${Math.round(v * 100)}%`;
 const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const id = () => crypto.randomUUID();
 export default function Curriculum({
-  onManual
+  onManual, theme, toggleTheme
 }) {
   const [data, setData] = useState(null),
     [view, setView] = useState('home'),
@@ -30,8 +31,8 @@ export default function Curriculum({
     [ready, setReady] = useState(false),
     [answer, setAnswer] = useState(null),
     [second, setSecond] = useState(''),
-    [confidence, setConfidence] = useState(.7),
     [busy, setBusy] = useState(false);
+  const [wipeProgress, setWipeProgress] = useState(0);
   const gate = useRef(false),
     timer = useRef(null),
     generation = useRef(0),
@@ -63,6 +64,7 @@ export default function Curriculum({
       live = false;
       lifecycle.current++;
       clearTimeout(timer.current);
+      audioEngine.stop();
     };
   }, []);
   const model = useMemo(() => data ? estimate(data.trials, data.epoch) : null, [data]);
@@ -110,6 +112,7 @@ export default function Curriculum({
       block_index: fresh.blocks.filter(x => x.session_id === s.id).length,
       created_at: new Date().toISOString()
     };
+    b.trials = b.trials.map(t => ({ ...t, intertrial_ms: 10000 }));
     await putRecord('blocks', b);
     await warmSamples(b.trials);
     setData({
@@ -120,7 +123,7 @@ export default function Curriculum({
     setIndex(0);
     setResults([]);
     setAnswer(null);
-    setView('boundary');
+    return b;
   }
   async function start(type) {
     audioEngine.initSync();
@@ -147,14 +150,15 @@ export default function Curriculum({
       };
       await putRecord('sessions', s);
       setSession(s);
-      await createBlock(s);
+      const b = await createBlock(s);
+      await play(0, b);
     } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   }
-  async function play(i = index) {
+  async function play(i = index, activeBlock = block) {
     audioEngine.initSync();
     const token = ++generation.current;
     clearTimeout(timer.current);
@@ -164,55 +168,57 @@ export default function Curriculum({
     secondLatency.current = null;
     pending.current = null;
     gate.current = false;
-    setView('trial');
+    setView('wipe');
+    setWipeProgress(0);
     try {
-      const ctx = audioEngine.ctx,
-        gapSec = block.trials[i].intertrial_ms / 1000,
-        length = Math.floor(ctx.sampleRate * gapSec),
-        buf = ctx.createBuffer(1, length, ctx.sampleRate),
-        samples = buf.getChannelData(0);
-      // Mask the whole intertrial gap at an audible level (matching
-      // AudioEngine's established white-noise-mask gain) so the previous
-      // trial's pitch doesn't linger in silence right up to the next onset.
-      for (let j = 0; j < length; j++) samples[j] = (Math.random() * 2 - 1) * .3;
-      const noise = ctx.createBufferSource(),
-        noiseGain = ctx.createGain();
-      noise.buffer = buf;
-      noiseGain.gain.setValueAtTime(.3, ctx.currentTime);
-      noiseGain.gain.setValueAtTime(.3, ctx.currentTime + gapSec - .05);
-      noiseGain.gain.linearRampToValueAtTime(0, ctx.currentTime + gapSec);
-      noise.connect(noiseGain);
-      noiseGain.connect(audioEngine.masterGain);
-      noise.start();
-      timer.current = setTimeout(async () => {
+      await audioEngine.resume();
+      if (token !== generation.current) return;
+      const ctx = audioEngine.ctx;
+      const previous = i > 0 ? activeBlock.trials[i - 1] : data.trials.at(-1);
+      const targetHz = previous
+        ? chromaOctaveToHz(previous.target_pitch || previous.target_chroma || 'A', previous.octave || 4)
+        : 440;
+      const instrument = INSTRUMENTS.includes(previous?.timbre) ? previous.timbre : 'piano';
+      const end = audioEngine.runBufferWipe(targetHz, instrument);
+      const begin = end - 10;
+      // Follow the audio clock: suspended audio must never shorten the wipe.
+      const waitForWipe = async () => {
+        if (token !== generation.current) return;
+        setWipeProgress(Math.max(0, Math.min(1, (ctx.currentTime - begin) / 10)));
+        if (ctx.currentTime < end) {
+          timer.current = setTimeout(waitForWipe, 50);
+          return;
+        }
         try {
           if (token !== generation.current) return;
-          const timing = await playStimulus(block.trials[i]);
+          const timing = await playStimulus(activeBlock.trials[i]);
           if (token !== generation.current) return;
+          setView('trial');
           onset.current = timing;
           timer.current = setTimeout(() => {
             if (token !== generation.current) return;
             setReady(true);
-            timer.current = setTimeout(() => capture('TIMEOUT', i), Math.max(0, timing.onset + block.response_window_ms - performance.now()));
+            timer.current = setTimeout(() => capture('TIMEOUT', i, 'pointer', activeBlock), Math.max(0, timing.onset + activeBlock.response_window_ms - performance.now()));
           }, Math.max(0, timing.onset - performance.now()));
         } catch (e) {
           setError(e.message);
         }
-      }, block.trials[i].intertrial_ms);
+      };
+      timer.current = setTimeout(waitForWipe, 50);
     } catch (e) {
       setError(e.message);
     }
   }
-  function capture(response, i = index, input = 'pointer') {
+  function capture(response, i = index, input = 'pointer', activeBlock = block) {
     if (gate.current) return;
     gate.current = true;
     clearTimeout(timer.current);
     setReady(false);
     const latency = Math.max(0, performance.now() - onset.current.onset),
-      r = latency > block.response_window_ms ? 'TIMEOUT' : response;
+      r = latency > activeBlock.response_window_ms ? 'TIMEOUT' : response;
     pending.current = {
       response: r,
-      latency_ms: Math.min(latency, block.response_window_ms),
+      latency_ms: Math.min(latency, activeBlock.response_window_ms),
       input_method: input,
       index: i,
       sample_id: onset.current.sampleId,
@@ -221,7 +227,7 @@ export default function Curriculum({
     secondStart.current = performance.now();
     setView('confidence');
   }
-  async function record() {
+  async function record(confidence = .7) {
     if (!pending.current || busy) return;
     setBusy(true);
     const p = pending.current;
@@ -336,26 +342,33 @@ export default function Curriculum({
       setError(e.message);
     }
   }
-  function grid(selectable, handler, disabled = false) {
-    return <div className="curriculum-grid">{CHROMAS.map(p => <button key={p} disabled={disabled || !selectable.includes(p)} onClick={e => handler(p, e.detail === 0 ? 'keyboard' : 'pointer')}>{p}</button>)}{selectable.length < 12 && <button className="other" disabled={disabled} onClick={e => handler('OTHER', e.detail === 0 ? 'keyboard' : 'pointer')}>OTHER</button>}</div>;
-  }
   if (!data) return <main className="curriculum"><h1>AP Trainer</h1><p>{error || 'Loading your history…'}</p></main>;
-  return <main className="curriculum"><header><h1>AP Trainer</h1><p>Adaptive chromatic curriculum</p></header>{error && <p role="alert">{error}</p>}
- {view === 'home' && <><h2>Twelve pitches. Your pace.</h2><p>Build accurate, fast recognition that lasts. Training adapts between blocks; benchmark results remain separate.</p><div className="curriculum-controls"><label>Experience <select value={experience} onChange={e => setExperience(e.target.value)}><option value="new">New / untrained</option><option value="returning">Returning / pretrained</option></select></label><label><input type="checkbox" checked={sober} onChange={e => setSober(e.target.checked)} /> Sober</label><label><input type="checkbox" checked={focused} onChange={e => setFocused(e.target.checked)} /> Focused, no concurrent task</label><label>Alertness <select value={alertness} onChange={e => setAlertness(e.target.value)}><option>ordinary</option><option>high</option><option>low</option></select></label><label>Audio <select value={output} onChange={e => setOutput(e.target.value)}><option>headphones</option><option>speakers</option><option>other</option></select></label><label>Context / notes <input value={notes} onChange={e => setNotes(e.target.value)} /></label></div><div className="curriculum-actions"><button disabled={busy} onClick={() => start('adaptive')}>Start adaptive training</button><button disabled={busy} onClick={() => start('mapping')}>Map current ability</button><button disabled={busy} onClick={() => start('benchmark')}>Benchmark · 72 trials</button><button onClick={() => setView('map')}>Learner map</button><button onClick={backup}>Download full backup</button><button onClick={newEpoch}>Start a new training epoch</button><button onClick={onManual}>Manual practice & historical tools</button></div><p>Historical trials are preserved. A new epoch restarts curriculum selection and downweights previous evidence without deleting history.</p></>}
- {view === 'boundary' && <><h2>Block {block.block_index + 1}</h2><p>{block.trials.length} trials · {block.explicit_response_set.length} named responses{block.explicit_response_set.length < 12 ? ' plus OTHER' : ''}. These choices stay fixed throughout the block.</p>{grid(block.explicit_response_set, () => {})}<p>OTHER means the sound does not match any named choice. Diagnostic feedback appears after the block.</p><button onClick={() => play()}>Begin block</button></>}
- {view === 'trial' && <><h2>Trial {index + 1} / {block.trials.length}</h2><p aria-live="polite">{ready ? 'Identify the pitch' : 'Listen…'}</p>{grid(block.explicit_response_set, (p, input) => capture(p, index, input), !ready)}</>}
- {view === 'confidence' && <><h2>Response recorded</h2><label>Confidence <select value={confidence} onChange={e => setConfidence(e.target.value)}><option value={.4}>Low</option><option value={.7}>Medium</option><option value={.95}>High</option></select></label><label>Second instinct (optional) <select value={second} onChange={e => {
+  if (view === 'wipe') return <WipeScreen progress={wipeProgress} onQuit={finish} />;
+  if (view === 'home') return <div className="screen home-screen">
+    <header className="home-header"><div className="home-brand"><h1 className="app-title">AP Trainer</h1><span className="app-tagline">Absolute pitch training</span></div><button className="theme-btn" aria-label="Toggle theme" onClick={toggleTheme}>{theme === 'dark' ? '○' : '●'}</button></header>
+    {error && <p role="alert">{error}</p>}
+    <div className="home-layout">
+      <aside className="home-side"><div className="stat-row"><div className="stat"><span className="stat-value">{data.trials.length}</span><span className="stat-label">notes played</span></div></div>
+        <nav className="curriculum-home-nav" aria-label="Practice tools"><button className="pill-btn" onClick={onManual}>More ways to play</button><button className="pill-btn" onClick={() => setView('settings')}>Settings</button><button className="pill-btn" onClick={() => setView('map')}>Progress</button></nav>
+      </aside>
+      <button className="session-btn primary" disabled={busy} onClick={() => start('adaptive')}><span className="btn-title">{busy ? 'Getting ready…' : 'Start training'}</span><span className="btn-sub">Listen. Pick a note. Find your rhythm.</span></button>
+    </div>
+  </div>;
+  return <main className="curriculum"><header><h1>AP Trainer</h1><p>Absolute pitch training</p></header>{error && <p role="alert">{error}</p>}
+ {view === 'settings' && <><h2>Settings</h2><div className="curriculum-controls"><label>Experience <select value={experience} onChange={e => setExperience(e.target.value)}><option value="new">New / untrained</option><option value="returning">Returning / pretrained</option></select></label><label><input type="checkbox" checked={sober} onChange={e => setSober(e.target.checked)} /> Sober</label><label><input type="checkbox" checked={focused} onChange={e => setFocused(e.target.checked)} /> Focused, no concurrent task</label><label>Alertness <select value={alertness} onChange={e => setAlertness(e.target.value)}><option>ordinary</option><option>high</option><option>low</option></select></label><label>Audio <select value={output} onChange={e => setOutput(e.target.value)}><option>headphones</option><option>speakers</option><option>other</option></select></label><label>Context / notes <input value={notes} onChange={e => setNotes(e.target.value)} /></label></div><details><summary>Training tools</summary><div className="curriculum-actions"><button disabled={busy} onClick={() => start('mapping')}>Check starting ability</button><button disabled={busy} onClick={() => start('benchmark')}>Benchmark · 72 trials</button><button onClick={() => setView('map')}>Learner diagnostics</button><button onClick={backup}>Download full backup</button><button onClick={newEpoch}>Restart learning estimates</button></div><p>Restarting estimates preserves your history and gives earlier results less weight.</p></details><button onClick={() => setView('home')}>Back</button></>}
+ {view === 'trial' && <><h2>Trial {index + 1} / {block.trials.length}</h2><p aria-live="polite">{ready ? 'Identify the pitch' : 'Listen…'}</p><PitchGrid selectable={block.explicit_response_set} handler={(p, input) => capture(p, index, input)} disabled={!ready} /></>}
+ {view === 'confidence' && <div className="confidence-overlay"><p>How sure are you?</p>{[[.4, 'Low'], [.7, 'Medium'], [.95, 'High']].map(([value, label]) => <button className="conf-btn" key={value} disabled={busy} onClick={() => record(value)}>{label}</button>)}<details><summary>Second instinct</summary><label>Another guess <select value={second} onChange={e => {
           setSecond(e.target.value);
           secondLatency.current = performance.now() - secondStart.current;
-        }}><option value="">None</option>{block.explicit_response_set.map(p => <option key={p}>{p}</option>)}{block.explicit_response_set.length < 12 && <option>OTHER</option>}</select></label><p>Your first response remains the scored answer.</p><button disabled={busy} onClick={record}>Save response</button></>}
+        }}><option value="">None</option>{block.explicit_response_set.map(p => <option key={p}>{p}</option>)}{block.explicit_response_set.length < 12 && <option>OTHER</option>}</select></label></details></div>}
  {view === 'feedback' && <><h2>{answer.trial_purpose === 'training' ? answer.correct ? 'Correct' : 'Keep listening' : 'Response saved'}</h2>{answer.trial_purpose === 'training' && <p>Target: {answer.target_pitch}{block.explicit_response_set.includes(answer.target_pitch) ? '' : ' · OTHER'} · Your answer: {answer.response}</p>}<button onClick={next}>{index + 1 === block.trials.length ? 'Review block' : 'Next trial'}</button></>}
- {view === 'summary' && <><h2>{session.session_type === 'benchmark' ? 'Benchmark results' : 'Block results'}</h2><p>{session.session_type === 'adaptive' ? 'Training performance is conditioned on the adaptive policy.' : 'Diagnostic measurement; feedback was withheld.'}</p><p>Named balanced accuracy: {pct((() => {
+ {view === 'summary' && <><h2>{session.session_type === 'benchmark' ? 'Benchmark results' : 'Round complete'}</h2><p>{session.session_type === 'adaptive' ? 'Here’s how that round went.' : 'Your answers are ready to review.'}</p><p>Note accuracy: {pct((() => {
           const rates = block.explicit_response_set.map(p => results.filter(t => t.target_pitch === p)).filter(a => a.length).map(a => a.filter(t => t.correct).length / a.length);
           return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
-        })())}</p><p>OTHER for this vocabulary: {pct((() => {
+        })())}</p><p>Other-note accuracy: {pct((() => {
           const a = results.filter(t => !block.explicit_response_set.includes(t.target_pitch));
           return a.length ? a.filter(t => t.correct).length / a.length : null;
-        })())}</p><details><summary>Review responses</summary>{results.map((t, i) => <p key={i}>{i + 1}. {t.target_pitch} → {t.response} · {t.correct ? 'correct' : 'incorrect'}</p>)}</details>{session.session_type === 'adaptive' && <button onClick={() => createBlock(session).catch(e => setError(e.message))}>Prepare next block</button>}<button onClick={finish}>Finish session</button></>}
+        })())}</p><details><summary>Review responses</summary>{results.map((t, i) => <p key={i}>{i + 1}. {t.target_pitch} → {t.response} · {t.correct ? 'correct' : 'incorrect'}</p>)}</details>{session.session_type === 'adaptive' && <button onClick={() => createBlock(session).then(b => play(0, b)).catch(e => setError(e.message))}>Keep going</button>}<button onClick={finish}>Finish session</button></>}
  {view === 'map' && <><h2>Your twelve-pitch learner map</h2><p>Stability requires specificity, speed, multiple sessions, and delayed probes. Estimated ranges show uncertainty.</p><div className="pitch-map">{CHROMAS.map(p => {
           const s = model.pitches[p],
             last = data.blocks.filter(b => b.session_type === 'adaptive').at(-1);
@@ -364,6 +377,10 @@ export default function Curriculum({
         const rows = data.trials.filter(t => t.block_id === b.id);
         return <p key={b.id}>{b.created_at} · v{b.benchmark_version} · {rows.length}/{b.block_length} trials · {rows.length === b.block_length ? pct(rows.filter(t => t.correct).length / rows.length) : 'incomplete'}</p>;
       })}<button onClick={() => setView('home')}>Back</button></>}
- {!['home', 'map'].includes(view) && <button className="quit" disabled={busy} onClick={finish}>End session</button>}
+ {!['home', 'map', 'settings'].includes(view) && <button className="quit" disabled={busy} onClick={finish}>End session</button>}
  </main>;
 }
+
+function PitchGrid({ selectable, handler, disabled = false }) {
+    return <div className="curriculum-grid">{CHROMAS.map(p => <button key={p} disabled={disabled || !selectable.includes(p)} onClick={e => handler(p, e.detail === 0 ? 'keyboard' : 'pointer')}>{p}</button>)}{selectable.length < 12 && <button className="other" disabled={disabled} onClick={e => handler('OTHER', e.detail === 0 ? 'keyboard' : 'pointer')}>OTHER</button>}</div>;
+  }
