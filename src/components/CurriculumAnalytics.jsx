@@ -1,11 +1,16 @@
 import { CHROMAS } from '../audio/constants.js';
-import { median } from '../curriculum/model.js';
+import { median, benchmarkEligible } from '../curriculum/model.js';
 const percent = n => n == null ? '—' : `${Math.round(n * 100)}%`;
 export default function CurriculumAnalytics({
   trials,
   blocks,
   model
 }) {
+  const standardBenchmarks = new Set(blocks.filter(b => {
+    const rows = trials.filter(t => t.block_id === b.id);
+    return b.session_type === 'benchmark' && rows.length === b.block_length &&
+      rows.every(t => benchmarkEligible(t.session_context ?? {}) && t.invalidated !== true && t.valid !== false);
+  }).map(b => b.id));
   const categories = ['training', 'probe', 'benchmark'];
   const history = blocks.map(b => {
     const rows = trials.filter(t => t.block_id === b.id && t.explicit_response_set.includes(t.target_pitch));
@@ -18,10 +23,10 @@ export default function CurriculumAnalytics({
   }).filter(b => b.rt != null).slice(-30);
   const max = Math.max(3000, ...history.map(b => b.rt));
   return <section><h2>Evidence by purpose</h2><div className="table-scroll"><table><thead><tr><th>Purpose</th><th>Named observations</th><th>Balanced accuracy</th><th>Median correct RT</th></tr></thead><tbody>{categories.map(purpose => {
-            const rows = trials.filter(t => t.trial_purpose === purpose && t.explicit_response_set.includes(t.target_pitch));
+            const rows = trials.filter(t => t.trial_purpose === purpose && (purpose !== 'benchmark' || standardBenchmarks.has(t.block_id)) && t.explicit_response_set.includes(t.target_pitch));
             const rates = CHROMAS.map(p => rows.filter(t => t.target_pitch === p)).filter(a => a.length).map(a => a.filter(t => t.correct).length / a.length);
             return <tr key={purpose}><th>{purpose}</th><td>{rows.length}</td><td>{percent(rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null)}</td><td>{median(rows.filter(t => t.correct).map(t => t.latency_ms)) ?? '—'} ms</td></tr>;
-          })}</tbody></table></div><p>Training and probe summaries depend on the sampled tasks. Compare complete benchmarks with the same protocol version.</p>
+          })}</tbody></table></div><p>Training and probe summaries depend on the sampled tasks. Benchmark summaries include only complete, sober, focused headphone sessions. Compare the same protocol version.</p>
  <h2>Confusion map</h2><p>Rows are targets; columns are responses. Counts include named-pitch trials; OTHER and timeouts remain separate.</p><div className="table-scroll"><table className="confusion-table"><thead><tr><th>Target</th>{CHROMAS.concat('OTHER', 'TIMEOUT').map(p => <th key={p}>{p}</th>)}</tr></thead><tbody>{CHROMAS.map(p => {
             const counts = model.pitches[p].confusion,
               total = Object.values(counts).reduce((a, b) => a + b, 0);

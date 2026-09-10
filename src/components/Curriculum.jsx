@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CHROMAS, INSTRUMENTS, nearestSample, chromaOctaveToHz } from '../audio/constants.js';
 import { audioEngine } from '../audio/AudioEngine.js';
 import { getAllTrials, getMeta, setMeta, getRecords, putRecord, saveTrial, exportJSON } from '../db/db.js';
-import { estimate, VERSIONS } from '../curriculum/model.js';
+import { estimate, VERSIONS, contextKey, benchmarkEligible, isCanonical } from '../curriculum/model.js';
 import { schedule, generateSequence } from '../curriculum/scheduler.js';
 import { benchmark } from '../curriculum/benchmark.js';
 import { playStimulus } from '../curriculum/audio.js';
@@ -96,7 +96,7 @@ export default function Curriculum({
         }))
       };
     } else {
-      b = schedule(m, previous, seed());
+      b = schedule(m, previous, seed(), undefined, contextKey(s));
       b.trials = generateSequence(b);
       if (s.session_type === 'mapping') b.trials = b.trials.map(t => ({
         ...t,
@@ -148,6 +148,9 @@ export default function Curriculum({
         experience,
         ...VERSIONS
       };
+      if (type === 'benchmark' && !benchmarkEligible(s)) {
+        throw new Error('Benchmarks require sober, focused, ordinary or high alertness, and headphones. Regular training is available in every context.');
+      }
       await putRecord('sessions', s);
       setSession(s);
       const b = await createBlock(s);
@@ -372,10 +375,10 @@ export default function Curriculum({
  {view === 'map' && <><h2>Your twelve-pitch learner map</h2><p>Stability requires specificity, speed, multiple sessions, and delayed probes. Estimated ranges show uncertainty.</p><div className="pitch-map">{CHROMAS.map(p => {
           const s = model.pitches[p],
             last = data.blocks.filter(b => b.session_type === 'adaptive').at(-1);
-          return <article key={p}><h3>{p} · {s.ability_state}</h3><p>Role: {last?.scheduler_state_snapshot.roles[p] ?? 'exploration'}</p><p>{s.observation_count} named observations · {s.exposure_count} encounters</p><p>Canonical: {pct(s.canonical_accuracy)} · Estimate {pct(s.accuracy.lower)}–{pct(s.accuracy.upper)}</p><p>Training: {pct(s.training_accuracy)} · Benchmark: {pct(s.benchmark_accuracy)}</p><p>Median RT: {s.median_rt == null ? '—' : `${Math.round(s.median_rt)} ms`} · Trend: {s.trend == null ? '—' : `${Math.round(s.trend * 100)} points`}</p><p>False positives: {pct(s.falsePositive.mean)} · Upper bound {pct(s.falsePositive.upper)}</p><p>Confidence error (Brier): {s.confidence_calibration?.toFixed(2) ?? '—'}</p><p>Delayed probes: {s.retention.delayed_correct}/{s.retention.delayed_probes} · Last probe: {s.retention.last_probe ?? 'none'}</p><details><summary>Confusions & robustness</summary><p>{Object.entries(s.confusion).filter(([q, n]) => q !== p && n).sort((a, b) => b[1] - a[1]).map(([q, n]) => `${q}: ${n}`).join(' · ') || 'No observed confusions'}</p>{Object.entries(s.robustness).map(([key, groups]) => <p key={key}>{key}: {Object.entries(groups).map(([k, v]) => `${k} ${pct(v.accuracy)} (n=${v.count})`).join(' · ') || 'No evidence'}</p>)}</details></article>;
+          return <article key={p}><h3>{p} · {s.ability_state}</h3><p>Role: {last?.scheduler_state_snapshot.roles[p] ?? 'exploration'}</p><p>{s.observation_count} named observations · {s.exposure_count} encounters</p><p>Acquisition: {s.acquisition_state} · Sober transfer: {s.canonical_estimate.status} · Cross-context: {s.context_generalization}</p><details><summary>Context estimates</summary>{Object.entries(s.contexts).map(([key, c]) => <p key={key}>{key}: {c.observation_count} observations · estimated accuracy {pct(c.shrunk_accuracy)} · median {c.median_rt == null ? '—' : Math.round(c.median_rt) + ' ms'}</p>)}</details><p>Canonical: {pct(s.canonical_accuracy)} · Estimate {pct(s.accuracy.lower)}–{pct(s.accuracy.upper)}</p><p>Training: {pct(s.training_accuracy)} · Benchmark: {pct(s.benchmark_accuracy)}</p><p>Median RT: {s.median_rt == null ? '—' : `${Math.round(s.median_rt)} ms`} · Trend: {s.trend == null ? '—' : `${Math.round(s.trend * 100)} points`}</p><p>False positives: {pct(s.falsePositive.mean)} · Upper bound {pct(s.falsePositive.upper)}</p><p>Confidence error (Brier): {s.confidence_calibration?.toFixed(2) ?? '—'}</p><p>Delayed probes: {s.retention.delayed_correct}/{s.retention.delayed_probes} · Last probe: {s.retention.last_probe ?? 'none'}</p><details><summary>Confusions & robustness</summary><p>{Object.entries(s.confusion).filter(([q, n]) => q !== p && n).sort((a, b) => b[1] - a[1]).map(([q, n]) => `${q}: ${n}`).join(' · ') || 'No observed confusions'}</p>{Object.entries(s.robustness).map(([key, groups]) => <p key={key}>{key}: {Object.entries(groups).map(([k, v]) => `${k} ${pct(v.accuracy)} (n=${v.count})`).join(' · ') || 'No evidence'}</p>)}</details></article>;
         })}</div><CurriculumAnalytics trials={data.trials.filter(t => t.schema_version === 2)} blocks={data.blocks} model={model} /><h2>Benchmark history</h2>{data.blocks.filter(b => b.session_type === 'benchmark').map(b => {
         const rows = data.trials.filter(t => t.block_id === b.id);
-        return <p key={b.id}>{b.created_at} · v{b.benchmark_version} · {rows.length}/{b.block_length} trials · {rows.length === b.block_length ? pct(rows.filter(t => t.correct).length / rows.length) : 'incomplete'}</p>;
+        return <p key={b.id}>{b.created_at} · v{b.benchmark_version} · {rows.length}/{b.block_length} trials · {rows.length !== b.block_length ? 'incomplete' : rows.every(t => isCanonical(t) && t.session_context?.audio_output === 'headphones') ? pct(rows.filter(t => t.correct).length / rows.length) : 'nonstandard conditions — excluded from comparison'}</p>;
       })}<button onClick={() => setView('home')}>Back</button></>}
  {!['home', 'map', 'settings'].includes(view) && <button className="quit" disabled={busy} onClick={finish}>End session</button>}
  </main>;
