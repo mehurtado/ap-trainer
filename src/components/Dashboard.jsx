@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { getAllTrials, exportCSV, exportJSON, importJSON, clearHistory } from '../db/db.js';
+import { getAllTrials, exportCSV, exportJSON, importJSON, clearHistory, computeBackupSummary } from '../db/db.js';
 import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
 // ── Data builders ──────────────────────────────────────────────────────────
@@ -339,9 +339,11 @@ export default function Dashboard({ onBack }) {
   const [exporting, setExporting]     = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [wiping, setWiping]           = useState(false);
-  const [backingUp, setBackingUp]     = useState(false);
   const [restoring, setRestoring]     = useState(false);
   const [restoreMsg, setRestoreMsg]   = useState('');
+  const [backupPanel, setBackupPanel] = useState(null); // { data, summary } once opened
+  const [backupBusy, setBackupBusy]   = useState(false);
+  const [backupMsg, setBackupMsg]     = useState('');
   const restoreInputRef = useRef(null);
 
   useEffect(() => {
@@ -380,17 +382,71 @@ export default function Dashboard({ onBack }) {
   // preview-deploy URL that changes, and therefore resets IndexedDB, on
   // every new PR). CSV export above is for spreadsheet analysis and is lossy
   // (stringified), so it's not used as the restore source.
-  async function doBackup() {
-    setBackingUp(true);
+  //
+  // Opens a panel with the counts for the exact snapshot that Share/Download/
+  // Copy will all act on, so what's displayed always matches what gets saved.
+  async function openBackupPanel() {
+    setBackupMsg('');
     const data = await exportJSON();
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    setBackupPanel({ data, summary: computeBackupSummary(data), filename: `ap-trainer-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  }
+
+  function backupBlob() {
+    return new Blob([JSON.stringify(backupPanel.data)], { type: 'application/json' });
+  }
+
+  function triggerDownload(message) {
+    const url = URL.createObjectURL(backupBlob());
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ap-trainer-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = backupPanel.filename;
     a.click();
     URL.revokeObjectURL(url);
-    setBackingUp(false);
+    setBackupMsg(message);
+    setBackupBusy(false);
+  }
+
+  // Preferred on mobile: hands the backup to the OS share sheet (Files, Notes,
+  // AirDrop, cloud storage) as a real file, so it lands outside browser storage.
+  async function doShareBackup() {
+    setBackupBusy(true);
+    setBackupMsg('');
+    try {
+      const file = new File([backupBlob()], backupPanel.filename, { type: 'application/json' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'AP Trainer backup' });
+        setBackupMsg('Backup shared.');
+      } else {
+        triggerDownload('Sharing not supported here — downloaded instead.');
+        return;
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setBackupBusy(false);
+        return;
+      }
+      // A real share failure still needs to end with a saved file — fall
+      // back to download rather than leaving the user with nothing.
+      triggerDownload(`Share failed (${err.message}) — downloaded instead.`);
+      return;
+    }
+    setBackupBusy(false);
+  }
+
+  function doDownloadBackup() {
+    triggerDownload('Backup downloaded.');
+  }
+
+  async function doCopyBackup() {
+    setBackupBusy(true);
+    setBackupMsg('');
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(backupPanel.data));
+      setBackupMsg('Copied to clipboard — paste it somewhere outside the browser (Notes, email, etc.) to save it.');
+    } catch (err) {
+      setBackupMsg(`Copy failed: ${err.message}`);
+    }
+    setBackupBusy(false);
   }
 
   function doRestoreClick() {
@@ -520,8 +576,8 @@ export default function Dashboard({ onBack }) {
           <button className="export-btn" onClick={doExport} disabled={exporting}>
             {exporting ? '...' : 'Export CSV'}
           </button>
-          <button className="export-btn" onClick={doBackup} disabled={backingUp} title="Full backup — use this to carry history into a new preview-deploy URL">
-            {backingUp ? '...' : 'Backup'}
+          <button className="export-btn" onClick={openBackupPanel} title="Full backup — use this to carry history into a new preview-deploy URL, or before any migration">
+            Backup
           </button>
           <button className="export-btn" onClick={doRestoreClick} disabled={restoring} title="Restore a backup — merges into the history already here">
             {restoring ? '...' : 'Restore'}
@@ -540,6 +596,28 @@ export default function Dashboard({ onBack }) {
       </div>
 
       {restoreMsg && <div className="restore-msg">{restoreMsg}</div>}
+
+      {backupPanel && (
+        <div className="backup-panel">
+          <div className="backup-summary">
+            <span>{backupPanel.summary.trialCount} trials</span>
+            <span>{backupPanel.summary.sessionCount} sessions</span>
+            <span>{backupPanel.summary.blockCount} blocks</span>
+            <span>{backupPanel.summary.epochCount} epochs</span>
+            <span>{backupPanel.summary.ambientCount} ambient</span>
+            {backupPanel.summary.earliestTrial && (
+              <span>{backupPanel.summary.earliestTrial.slice(0, 10)} → {backupPanel.summary.latestTrial.slice(0, 10)}</span>
+            )}
+          </div>
+          <div className="backup-actions">
+            <button className="export-btn" onClick={doShareBackup} disabled={backupBusy}>Save / Share Backup</button>
+            <button className="export-btn" onClick={doDownloadBackup} disabled={backupBusy}>Download JSON</button>
+            <button className="export-btn" onClick={doCopyBackup} disabled={backupBusy}>Copy Backup JSON</button>
+            <button className="back-btn" onClick={() => { setBackupPanel(null); setBackupMsg(''); }}>Close</button>
+          </div>
+          {backupMsg && <div className="restore-msg">{backupMsg}</div>}
+        </div>
+      )}
 
       {confirmWipe && (
         <div className="wipe-confirm-bar">

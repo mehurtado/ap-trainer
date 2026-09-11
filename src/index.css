@@ -811,6 +811,19 @@ body {
 .wipe-btn.danger:hover:not(:disabled) { opacity: 0.8; }
 .wipe-btn:disabled { opacity: 0.4; cursor: default; }
 
+.backup-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.backup-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-dim); }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .wipe-confirm-bar {
   display: flex;
   align-items: center;

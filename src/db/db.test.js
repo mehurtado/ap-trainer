@@ -1,6 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { sanitizeForCSV } from './db.js';
+import { sanitizeForCSV, computeBackupSummary } from './db.js';
+
+test('computeBackupSummary counts each store and finds earliest/latest trial', () => {
+  const data = {
+    trials: [
+      { id: 'a', timestamp: '2026-03-02T00:00:00.000Z' },
+      { id: 'b', timestamp: '2026-01-01T00:00:00.000Z' },
+      { id: 'c', timestamp: '2026-02-01T00:00:00.000Z' },
+    ],
+    ambient: [{ id: 'x' }, { id: 'y' }],
+    sessions: [{ id: 's1' }],
+    blocks: [],
+    epochs: [{ id: 'e1' }, { id: 'e2' }],
+  };
+  const summary = computeBackupSummary(data);
+  assert.strictEqual(summary.trialCount, 3);
+  assert.strictEqual(summary.ambientCount, 2);
+  assert.strictEqual(summary.sessionCount, 1);
+  assert.strictEqual(summary.blockCount, 0);
+  assert.strictEqual(summary.epochCount, 2);
+  assert.strictEqual(summary.earliestTrial, '2026-01-01T00:00:00.000Z');
+  assert.strictEqual(summary.latestTrial, '2026-03-02T00:00:00.000Z');
+});
+
+test('computeBackupSummary handles empty payload', () => {
+  const summary = computeBackupSummary({});
+  assert.strictEqual(summary.trialCount, 0);
+  assert.strictEqual(summary.earliestTrial, null);
+  assert.strictEqual(summary.latestTrial, null);
+});
 
 test('sanitizeForCSV prepends single quote to dangerous characters', () => {
   assert.strictEqual(sanitizeForCSV('=1+2'), "'=1+2");

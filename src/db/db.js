@@ -117,6 +117,23 @@ export async function exportJSON() {
   return { schema_version: 2, trials, ambient, sessions, blocks, epochs, meta, exportedAt: new Date().toISOString() };
 }
 
+// Summarizes a payload already produced by exportJSON(), so the counts shown
+// to the user describe the exact file they're about to save — not a fresh
+// (and possibly different) DB read taken after the fact.
+export function computeBackupSummary(data) {
+  const trials = data.trials ?? [];
+  const timestamps = trials.map(t => t.timestamp).filter(Boolean).sort();
+  return {
+    trialCount: trials.length,
+    sessionCount: (data.sessions ?? []).length,
+    blockCount: (data.blocks ?? []).length,
+    epochCount: (data.epochs ?? []).length,
+    ambientCount: (data.ambient ?? []).length,
+    earliestTrial: timestamps[0] ?? null,
+    latestTrial: timestamps[timestamps.length - 1] ?? null,
+  };
+}
+
 export async function importJSON({ trials = [], ambient = [], sessions = [], blocks = [], epochs = [], meta = [] }) {
   const existingIds = new Set((await getAllTrials()).filter(t => t.id).map(t => t.id));
   trials = trials.filter(t => { if (!t.id) return true; if (existingIds.has(t.id)) return false; existingIds.add(t.id); return true; });
