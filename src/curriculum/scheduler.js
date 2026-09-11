@@ -85,13 +85,14 @@ export function schedule(model, previous, seed, config = CONFIG, context = null)
   const since = states.reduce((n, s) => n + s.accuracy.evidence, 0);
   const expand = previous && active.length < 12 && qualified >= Math.max(1, Math.floor(active.length * .75)) && since >= 24 && load < .4;
   if (expand) active.push(candidate(active, model, random));
-  const roles = Object.fromEntries(CHROMAS.map(p => [p, !active.includes(p) ? 'exploration' : model.pitches[p].ability_state === 'regressed' ? 'remediation' : model.pitches[p].ability_state === 'stable' ? 'maintenance' : model.pitches[p].observation_count === 0 ? 'diagnostic' : 'acquisition']));
+  const roles = Object.fromEntries(CHROMAS.map(p => [p, !active.includes(p) ? 'exploration' : model.pitches[p].ability_state === 'regressed' ? 'remediation' : model.pitches[p].acquisitionStable ? 'maintenance' : model.pitches[p].observation_count === 0 ? 'diagnostic' : 'acquisition']));
   const inactive = CHROMAS.filter(p => !active.includes(p));
   const mass = inactive.length ? config.negativeMass : 0;
   const weights = active.map(p => {
     const s = contextual(p);
     const overdue = s.retention.last_probe ? Math.min(1, (model.computed_at - Date.parse(s.retention.last_probe)) / 604800000) : 1;
-    return 1 + (1 - s.accuracy.mean) + s.uncertainty + overdue + s.falsePositive.mean;
+    return 1 + (1 - s.accuracy.mean) + s.uncertainty + overdue +
+      (s.acquisitionStable ? 1 - s.retention.mean : 0) + s.falsePositive.mean;
   });
   const total = weights.reduce((a, b) => a + b, 0);
   // Clip to feasible bounds then redistribute residual mass without violating them.
@@ -121,7 +122,7 @@ export function schedule(model, previous, seed, config = CONFIG, context = null)
     category_formation: 1 - balanced,
     chromatic_expansion: (12 - active.length) / 12 * (1 - load),
     boundary_sharpening: confusion,
-    retention: states.filter(s => s.ability_state === 'stable').length / states.length,
+    retention: states.filter(s => s.acquisitionStable && !s.retentionStable).length / states.length,
     robustness: active.length === 12 ? balanced * .5 : 0,
     automaticity: active.length === 12 ? latencyLoad : 0
   };
@@ -135,6 +136,11 @@ export function schedule(model, previous, seed, config = CONFIG, context = null)
     random_seed: seed,
     scheduler_decision: {
       context,
+      configuration: [...(previous?.explicit_response_set ?? active)].sort().join(',') + '|' + (previous?.response_window_ms ?? config.responseWindow),
+      qualified_pitch_count: qualified,
+      required_qualified_pitch_count: Math.max(1, Math.floor(states.length * .75)),
+      configuration_evidence: since,
+      expansion_gates: { qualification: qualified >= Math.max(1, Math.floor(states.length * .75)), evidence: since >= 24, load: load < .4, capacity: states.length < 12 },
       action: expand ? 'activate' : 'consolidate',
       balanced_named_accuracy: balanced,
       load,
@@ -143,6 +149,11 @@ export function schedule(model, previous, seed, config = CONFIG, context = null)
     },
     scheduler_state_snapshot: {
       roles,
+      pitches: Object.fromEntries(states.map((s, i) => [active[i], {
+        observation_count: s.observation_count, acquisition: s.acquisition, retention: s.retention,
+        scheduler: { configuration_accuracy: s.accuracy.mean, configuration_evidence: s.accuracy.evidence,
+          qualifies_for_expansion: s.accuracy.evidence >= config.expansionEvidence && s.accuracy.mean >= config.expansionAccuracy }
+      }])),
       model
     },
     block_length: config.blockLength

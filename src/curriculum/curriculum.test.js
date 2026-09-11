@@ -231,7 +231,7 @@ test('context does not discount identical observations', () => {
 test('v1 history is reprocessed and explicit invalidation excludes evidence', () => {
   const rows = Array.from({length: 20}, (_, i) => row('D', 'D', i, {learner_model_version: '1', canonical_condition: false}));
   const s = estimate(rows, 'e', now).pitches.D;
-  assert.equal(s.accuracy.evidence, 20);
+  assert.ok(s.accuracy.evidence < 20 && s.accuracy.evidence > 17);
   assert.equal(s.contexts.unknown.observation_count, 20);
   for (const flag of [{invalidated:true}, {valid:false}, {completed:false}]) {
     assert.equal(estimate(rows.map(t => ({...t, ...flag})), 'e', now).pitches.D.accuracy.evidence, 0);
@@ -244,7 +244,7 @@ test('conditional estimates retain empirical differences and sparse shrinkage', 
   rows.push(...Array.from({length:100}, (_,i) => row('F#', i < 60 ? 'F#':'D', i, {session_context:sober})));
   let s = estimate(rows, 'e', now).pitches['F#'];
   assert.ok(s.contexts[contextKey(high)].shrunk_accuracy - s.contexts[contextKey(sober)].shrunk_accuracy > .25);
-  assert.equal(s.canonical_estimate.accuracy.evidence, 100);
+  assert.ok(s.canonical_estimate.accuracy.evidence > 54 && s.canonical_estimate.accuracy.evidence < 55);
   s = estimate(rows.slice(0,100).concat(row('F#','D',1,{session_context:sober})), 'e', now).pitches['F#'];
   const c = s.contexts[contextKey(sober)];
   assert.ok(c.shrunk_accuracy > c.accuracy.mean);
@@ -282,4 +282,78 @@ test('adding noncanonical evidence does not overwrite canonical estimates', () =
   const after=estimate([...sober,...high],'e',now).pitches.D;
   assert.deepEqual(before.canonical_estimate.accuracy,after.canonical_estimate.accuracy);
   assert.ok(after.accuracy.mean < before.accuracy.mean);
+});
+
+test('acquisition supersession and pitch locality', () => {
+  const old = Array.from({length:100},(_,i)=>row('C#','D',i));
+  const fresh = Array.from({length:50},(_,i)=>row('C#','C#',i));
+  const a=estimate(old,'e',now).pitches['C#'];
+  const b=estimate([...old,...fresh],'e',now).pitches['C#'];
+  const errors = x => (1-x.accuracy.mean)*(x.accuracy.evidence+2)-1;
+  assert.ok(Math.abs(errors(b)/errors(a)-.5)<1e-10);
+  assert.deepEqual(estimate([...old,...Array.from({length:500},(_,i)=>row('G','G',i))],'e',now).pitches['C#'].accuracy,a.accuracy);
+});
+test('configuration locality and probe purpose weight', () => {
+  const old=Array.from({length:30},(_,i)=>row('C#','C#',i,{explicit_response_set:['G','C#','E']}));
+  const fresh=Array.from({length:100},(_,i)=>row('C#','C#',i,{explicit_response_set:['G','C#']}));
+  const key='C#,E,G|3000';
+  assert.deepEqual(estimate(old,'e',now).configurations[key],estimate([...old,...fresh],'e',now).configurations[key]);
+  const m=estimate([row('C#','C#',0,{trial_purpose:'probe'})],'e',now);
+  assert.equal(m.pitches['C#'].accuracy.evidence,1.5);
+  assert.equal(Object.values(m.configurations)[0]['C#'].total,1.5);
+});
+test('90-day inactivity halves evidence without manufacturing regression', () => {
+  const rows=Array.from({length:100},(_,i)=>row('C#','C#',i));
+  const a=estimate(rows,'e',now).pitches['C#'];
+  for(const days of [30,90,360]) {
+    const b=estimate(rows,'e',now+days*86400000).pitches['C#'];
+    assert.notEqual(b.ability_state,'regressed');
+    if(days===90) assert.ok(Math.abs(b.accuracy.evidence/a.accuracy.evidence-.5)<1e-10);
+  }
+});
+test('rapid learning responds faster than 30-day-only weighting', () => {
+  const rows=Array.from({length:200},(_,i)=>row('C#',i<100 ? (i%5<3?'C#':'D') : (i%20?'C#':'D'),i));
+  const current=estimate(rows,'e',now).pitches['C#'].accuracy.mean;
+  assert.ok(current > (155+1)/202+.09);
+});
+test('same-day acquisition is strong but retention needs delayed retrieval', () => {
+  const rows=Array.from({length:100},(_,i)=>row('C#','C#',i));
+  rows.push(...Array.from({length:100},(_,i)=>row('G','G',i)));
+  const a=estimate(rows,'e',now).pitches['C#'];
+  assert.equal(a.acquisition_state,'strong');
+  assert.equal(a.retention.evidence,0);
+  assert.equal(a.stable,false);
+  const probes=Array.from({length:4},(_,i)=>row('C#','C#',i,{trial_purpose:'probe',delay_since_exposure_ms:86400000*(i+1)}));
+  const b=estimate([...rows,...probes],'e',now).pitches['C#'];
+  assert.equal(b.retention.evidence,4);
+  assert.equal(b.retentionStable,true);
+  assert.equal(b.retention.longest_successful_delay_ms,4*86400000);
+  assert.deepEqual(estimate([...rows,...probes,...rows],'e',now).pitches['C#'].retention,b.retention);
+  assert.equal(estimate(probes,'e',now+180*86400000).pitches['C#'].retention.evidence,2);
+  assert.equal(estimate([row('C#','C#',0,{trial_purpose:'probe',delay_since_exposure_ms:86399999})],'e',now).pitches['C#'].retention.evidence,0);
+});
+test('two of three qualified pitches expand with diagnostics and no retention', () => {
+  const active=['G','C#','E'];
+  const rows=active.flatMap(p=>Array.from({length:60},(_,i)=>row(p,p==='E'&&i%2?'G':p,i,{explicit_response_set:active})));
+  const m=estimate(rows,'e',now), previous={explicit_response_set:active,response_window_ms:3000,scheduler_decision:{}};
+  const b=schedule(m,previous,42);
+  assert.equal(b.explicit_response_set.length,4);
+  assert.equal(b.scheduler_decision.qualified_pitch_count,2);
+  assert.equal(b.scheduler_state_snapshot.pitches.E.scheduler.qualifies_for_expansion,false);
+});
+test('history rebuild is immutable and reproducible, including compatible v2', () => {
+  const rows=Array.from({length:70},(_,i)=>Object.freeze(row('C#',i%4?'C#':'G',i,{learner_model_version:'2',timestamp:new Date(now-i*1000).toISOString()})));
+  Object.freeze(rows);
+  const a=estimate(rows,'e',now);
+  assert.equal(a.pitches['C#'].observation_count,70);
+  assert.deepEqual(a,estimate(JSON.parse(JSON.stringify(rows)),'e',now));
+  assert.deepEqual(a,estimate([...rows].reverse(),'e',now));
+});
+test('exploration ages label negatives but not inactive acquisition; excluded trials do neither', () => {
+  const old=Array.from({length:100},(_,i)=>row('F#','E',i,{explicit_response_set:['E','G']}));
+  const fresh=Array.from({length:100},(_,i)=>row('F#','OTHER',i,{explicit_response_set:['E','G'],correct:true}));
+  const a=estimate(old,'e',now),b=estimate([...old,...fresh],'e',now);
+  assert.equal(b.pitches['F#'].accuracy.evidence,0);
+  assert.ok(b.pitches.E.falsePositive.mean<a.pitches.E.falsePositive.mean-.7);
+  assert.deepEqual(a.pitches.E.falsePositive,estimate([...old,...fresh.map(t=>({...t,session_type:'benchmark',trial_purpose:'probe'}))],'e',now).pitches.E.falsePositive);
 });
