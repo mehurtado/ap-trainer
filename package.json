@@ -8,9 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test src/curriculum/curriculum.test.js src/audio/*.test.js src/db/db.test.js"
+    "test": "node --test src/curriculum/curriculum.test.js src/audio/*.test.js src/db/db.test.js src/lib/*.test.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
