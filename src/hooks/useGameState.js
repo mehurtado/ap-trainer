@@ -21,8 +21,8 @@ function getWindowBounds() {
   return { minMs: 500, maxMs: 3000 };
 }
 
-export function useGameState() {
-  const [screen, setScreen] = useState('home'); // 'home' | 'trial' | 'wipe' | 'feedback' | 'dashboard' | 'ambient' | 'micro'
+export function useGameState(initialScreen) {
+  const [screen, setScreen] = useState(initialScreen || 'home'); // 'home' | 'trial' | 'wipe' | 'feedback' | 'dashboard' | 'ambient' | 'micro'
   const [level, setLevel] = useState(1);
   const [sessionType, setSessionType] = useState('evening');
   const [trialIndex, setTrialIndex] = useState(0);

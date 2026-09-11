@@ -14,14 +14,25 @@ import Curriculum from './components/Curriculum.jsx';
 
 export default function App() {
   const [manual, setManual] = useState(false);
+  const [pendingScreen, setPendingScreen] = useState(null);
   const { theme, toggle: toggleTheme } = useTheme();
   return manual
-    ? <ManualPractice onReturn={() => setManual(false)} theme={theme} toggleTheme={toggleTheme} />
-    : <Curriculum onManual={() => setManual(true)} theme={theme} toggleTheme={toggleTheme} />;
+    ? <ManualPractice
+        onReturn={() => { setManual(false); setPendingScreen(null); }}
+        initialScreen={pendingScreen}
+        theme={theme}
+        toggleTheme={toggleTheme}
+      />
+    : <Curriculum
+        onManual={() => setManual(true)}
+        onDashboard={() => { setManual(true); setPendingScreen('dashboard'); }}
+        theme={theme}
+        toggleTheme={toggleTheme}
+      />;
 }
 
-function ManualPractice({ onReturn, theme, toggleTheme }) {
-  const g = useGameState();
+function ManualPractice({ onReturn, initialScreen, theme, toggleTheme }) {
+  const g = useGameState(initialScreen);
   if (g.screen === 'home') {
     return (
       <><button className="back-btn" onClick={onReturn}>Back to training</button><HomeScreen manualOnly

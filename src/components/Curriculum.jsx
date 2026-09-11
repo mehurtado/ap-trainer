@@ -13,7 +13,7 @@ const pct = v => v == null ? '—' : `${Math.round(v * 100)}%`;
 const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const id = () => crypto.randomUUID();
 export default function Curriculum({
-  onManual, theme, toggleTheme
+  onManual, onDashboard, theme, toggleTheme
 }) {
   const [data, setData] = useState(null),
     [view, setView] = useState('home'),
@@ -352,7 +352,7 @@ export default function Curriculum({
     {error && <p role="alert">{error}</p>}
     <div className="home-layout">
       <aside className="home-side"><div className="stat-row"><div className="stat"><span className="stat-value">{data.trials.length}</span><span className="stat-label">notes played</span></div></div>
-        <nav className="curriculum-home-nav" aria-label="Practice tools"><button className="pill-btn" onClick={onManual}>More ways to play</button><button className="pill-btn" onClick={() => setView('settings')}>Settings</button><button className="pill-btn" onClick={() => setView('map')}>Progress</button></nav>
+        <nav className="curriculum-home-nav" aria-label="Practice tools"><button className="pill-btn" onClick={onManual}>More ways to play</button><button className="pill-btn" onClick={onDashboard}>Dashboard</button><button className="pill-btn" onClick={() => setView('settings')}>Settings</button><button className="pill-btn" onClick={() => setView('map')}>Progress</button></nav>
       </aside>
       <button className="session-btn primary" disabled={busy} onClick={() => start('adaptive')}><span className="btn-title">{busy ? 'Getting ready…' : 'Start training'}</span><span className="btn-sub">Listen. Pick a note. Find your rhythm.</span></button>
     </div>
