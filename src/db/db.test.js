@@ -58,22 +58,37 @@ test('sanitizeForCSV does not modify non-string values', () => {
 class MockIDBObjectStore {
   constructor() {
     this.data = [];
+    this.keys = [];
   }
+  nextKey() { return this.keys.length ? Math.max(...this.keys) + 1 : 1; }
   add(item) {
     if (item.triggerError) {
       this.tx.error = new Error('Mocked transaction error');
     } else {
       this.data.push(item);
+      this.keys.push(this.nextKey());
     }
   }
-  put(item) { const key=item.id??item.key; const i=this.data.findIndex(x=>(x.id??x.key)===key); if(i<0)this.data.push(item);else this.data[i]=item; }
+  put(item, key) {
+    if (key !== undefined) {
+      const i = this.keys.indexOf(key);
+      if (i < 0) { this.data.push(item); this.keys.push(key); }
+      else this.data[i] = item;
+      return;
+    }
+    const k = item.id ?? item.key;
+    const i = this.data.findIndex(x => (x.id ?? x.key) === k);
+    if (i < 0) { this.data.push(item); this.keys.push(this.nextKey()); }
+    else this.data[i] = item;
+  }
+  get(key) {
+    return this.tx._trackRequest(() => this.data.find(x => (x.id ?? x.key) === key));
+  }
   getAll() {
-    const req = {};
-    setTimeout(() => {
-      req.result = [...this.data];
-      if (req.onsuccess) req.onsuccess();
-    }, 0);
-    return req;
+    return this.tx._trackRequest(() => [...this.data]);
+  }
+  getAllKeys() {
+    return this.tx._trackRequest(() => [...this.keys]);
   }
   createIndex() {}
 }
@@ -84,21 +99,38 @@ class MockIDBTransaction {
     this.oncomplete = null;
     this.onerror = null;
     this.error = null;
+    this.pending = 0;
+    this.done = false;
 
     for (const key in stores) {
       stores[key].tx = this;
     }
 
-    setTimeout(() => {
-      if (this.error && this.onerror) {
-        this.onerror();
-      } else if (!this.error && this.oncomplete) {
-        this.oncomplete();
-      }
-    }, 0);
+    // Real requests (getAll/getAllKeys/get) can chain further requests from
+    // within their own onsuccess handler (e.g. the backfill's getAllKeys ->
+    // getAll -> put chain), so completion must wait for all outstanding
+    // requests to settle rather than firing on a fixed timer.
+    queueMicrotask(() => this._maybeComplete());
   }
   objectStore(name) {
     return this.stores[name];
+  }
+  _trackRequest(getResult) {
+    const req = {};
+    this.pending++;
+    setTimeout(() => {
+      req.result = getResult();
+      this.pending--;
+      if (req.onsuccess) req.onsuccess();
+      this._maybeComplete();
+    }, 0);
+    return req;
+  }
+  _maybeComplete() {
+    if (this.done || this.pending > 0) return;
+    this.done = true;
+    if (this.error && this.onerror) this.onerror();
+    else if (!this.error && this.oncomplete) this.oncomplete();
   }
 }
 
@@ -121,11 +153,14 @@ class MockIDBDatabase {
   }
 }
 
+let sharedMockDb = null;
+
 globalThis.indexedDB = {
   open: () => {
     const req = {};
     setTimeout(() => {
       const db = new MockIDBDatabase();
+      sharedMockDb = db;
       if (req.onupgradeneeded) req.onupgradeneeded({ target: { result: db } });
       if (req.onsuccess) {
         req.result = db;
@@ -136,7 +171,7 @@ globalThis.indexedDB = {
   }
 };
 
-const { saveTrial, getAllTrials, exportJSON, importJSON } = await import('./db.js');
+const { saveTrial, getAllTrials, exportJSON, importJSON, saveAmbient, getAllAmbient, backfillMissingIds, backfillAllMissingIds } = await import('./db.js');
 
 test('test saveTrial success', async () => {
   await saveTrial({ note: 'C' });
@@ -179,4 +214,64 @@ test('version 2 backup preserves session, block, epoch and metadata snapshots', 
  await importJSON(backup);await importJSON(backup);const exported=await exportJSON();
  assert.equal(exported.trials.filter(t=>t.id==='v2-test').length,1);
  for(const key of ['sessions','blocks','epochs','meta'])assert.deepEqual(exported[key],backup[key]);
+});
+
+test('saveAmbient assigns a UUID when entry has no id', async () => {
+  await saveAmbient({ sound_source: 'fridge-hum-marker' });
+  const all = await getAllAmbient();
+  const entry = all.find(a => a.sound_source === 'fridge-hum-marker');
+  assert.ok(entry, 'ambient entry should be present');
+  assert.ok(entry.id, 'ambient entry should get an assigned id');
+});
+
+test('saveAmbient preserves an explicitly provided id', async () => {
+  await saveAmbient({ sound_source: 'kettle-marker', id: 'preset-ambient-id' });
+  const all = await getAllAmbient();
+  const entry = all.find(a => a.sound_source === 'kettle-marker');
+  assert.strictEqual(entry.id, 'preset-ambient-id');
+});
+
+test('backfillMissingIds assigns an id to a legacy record without one, leaving other fields and store size unchanged', async () => {
+  await getAllTrials(); // ensure the shared mock DB has been opened
+  const store = sharedMockDb.stores.trials;
+  const sizeBefore = store.data.length;
+  const legacyKey = store.nextKey();
+  store.data.push({ note: 'legacy-no-id-marker', timestamp: 'legacy-ts' });
+  store.keys.push(legacyKey);
+
+  await backfillMissingIds('trials');
+
+  assert.strictEqual(store.data.length, sizeBefore + 1, 'backfill must not add or remove records');
+  const keyIndex = store.keys.indexOf(legacyKey);
+  const updated = store.data[keyIndex];
+  assert.strictEqual(updated.note, 'legacy-no-id-marker');
+  assert.strictEqual(updated.timestamp, 'legacy-ts');
+  assert.ok(updated.id, 'legacy record should now have an id');
+});
+
+test('backfillMissingIds leaves a record that already has an id untouched', async () => {
+  await getAllTrials();
+  const store = sharedMockDb.stores.trials;
+  store.data.push({ id: 'already-has-id-marker', note: 'keep-me' });
+  store.keys.push(store.nextKey());
+
+  await backfillMissingIds('trials');
+
+  const record = store.data.find(t => t.note === 'keep-me');
+  assert.strictEqual(record.id, 'already-has-id-marker');
+});
+
+test('backfillAllMissingIds only assigns each id once, even if run again', async () => {
+  await getAllTrials();
+  const store = sharedMockDb.stores.trials;
+  store.data.push({ note: 'idempotency-marker', timestamp: 'x' });
+  store.keys.push(store.nextKey());
+
+  await backfillAllMissingIds();
+  const firstId = store.data.find(t => t.note === 'idempotency-marker').id;
+  assert.ok(firstId);
+
+  await backfillAllMissingIds();
+  const secondId = store.data.find(t => t.note === 'idempotency-marker').id;
+  assert.strictEqual(secondId, firstId, 'a second run must not reassign a new id');
 });

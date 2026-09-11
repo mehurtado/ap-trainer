@@ -58,7 +58,7 @@ export async function saveAmbient(entry) {
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('ambient', 'readwrite');
-    tx.objectStore('ambient').add({ ...entry, timestamp: new Date().toISOString() });
+    tx.objectStore('ambient').add({ ...entry, id: entry.id ?? crypto.randomUUID(), timestamp: new Date().toISOString() });
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
@@ -92,6 +92,44 @@ export async function setMeta(key, value) {
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
+}
+
+export async function backfillMissingIds(storeName) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const keysReq = store.getAllKeys();
+    keysReq.onerror = () => reject(keysReq.error);
+    keysReq.onsuccess = () => {
+      const keys = keysReq.result;
+      const valuesReq = store.getAll();
+      valuesReq.onerror = () => reject(valuesReq.error);
+      valuesReq.onsuccess = () => {
+        // This store has no keyPath, so a value on its own carries no
+        // record of its real IDB key: getAll() alone can't tell us where to
+        // put() it back without inserting a duplicate under a fresh
+        // auto-incremented key. getAllKeys() and getAll() on the same store
+        // return arrays in identical key order, so zipping them by index
+        // recovers the real key, letting store.put(value, key) update the
+        // existing record in place (the two-arg put is required — and only
+        // valid — on a store with no keyPath).
+        valuesReq.result.forEach((value, i) => {
+          if (value.id) return;
+          store.put({ ...value, id: crypto.randomUUID() }, keys[i]);
+        });
+      };
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function backfillAllMissingIds() {
+  if (await getMeta('uuidBackfillV1')) return;
+  await backfillMissingIds('trials');
+  await backfillMissingIds('ambient');
+  await setMeta('uuidBackfillV1', true);
 }
 
 export async function clearHistory() {
