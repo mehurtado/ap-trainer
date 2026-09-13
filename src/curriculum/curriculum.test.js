@@ -25,53 +25,64 @@ function row(p, response, i, extra = {}) {
     ...extra
   };
 }
-function simulate(profile, blocks = 100, context = {}) {
+function simulate(profile, blocks = 100, context = {}, respond = (p, active) => active.find(q => q !== p), clock = null, initial = null) {
   const random = prng(87),
     rows = [];
-  let previous = null;
-  const sizes = [];
+  let previous = initial;
+  const sizes = [], decisions = [];
+  const lastExposure = new Map();
   for (let b = 0; b < blocks; b++) {
-    const model = estimate(rows, 'e', now);
+    const time = now + (clock ? b * clock.blockIntervalMs : 0);
+    const model = estimate(rows, 'e', time);
     const block = schedule(model, previous, b + 10, CONFIG, context.session_context ? contextKey(context.session_context) : null);
     sizes.push(block.explicit_response_set.length);
+    decisions.push(block.scheduler_decision);
     for (const t of generateSequence(block)) {
       const p = t.target_pitch,
         active = block.explicit_response_set;
       const seen = rows.filter(r => r.target_pitch === p && r.explicit_response_set.includes(p)).length;
       const probability = profile(p, seen, b);
       const expected = active.includes(p) ? p : 'OTHER';
-      const response = random() < probability ? expected : active.find(q => q !== p);
+      const response = random() < probability ? expected : respond(p, active, random);
       rows.push(row(p, response, b, {
         ...t,
         ...context,
+        ...(clock ? { timestamp: new Date(time).toISOString(), session_id: 'clock-' + Math.floor(b / clock.sessionEveryNBlocks),
+          delay_since_exposure_ms: lastExposure.has(p) ? time - lastExposure.get(p) : null } : {}),
         explicit_response_set: active,
         correct: response === expected
       }));
+      lastExposure.set(p, time);
     }
     previous = block;
   }
   return {
     sizes,
+    decisions,
     rows,
     previous
   };
 }
 test('fast learner expands without calendar gating', () => {
-  const r = simulate(() => .99);
+  // Measured: twelfth introduction at block 96, promotion at 110 under fixed candidate mass.
+  const r = simulate(() => .99, 120);
   assert.equal(r.sizes.at(-1), 12);
   assert.ok(r.sizes.indexOf(12) < 100);
+  assert.equal(r.decisions.at(-1).active_set.length, 12);
 });
 test('slow learner eventually expands as evidence improves', () => {
   const r = simulate((p, n) => Math.min(.99, .6 + n * .012));
   assert.ok(r.sizes.at(-1) > 2);
 });
 test('single weak category does not block global expansion', () => {
-  const r = simulate(p => p === schedule(estimate([], 'e', now), null, 10).explicit_response_set[0] ? .2 : .99, 140);
+  // TIMEOUT isolates recognition weakness; first-other errors also create an overbroad category.
+  const r = simulate(p => p === schedule(estimate([], 'e', now), null, 10).explicit_response_set[0] ? .2 : .99, 140, {}, () => 'TIMEOUT');
   assert.equal(r.sizes.at(-1), 12);
 });
 test('broad confusion slows expansion', () => {
   const r = simulate(() => .4);
   assert.equal(r.sizes.at(-1), 2);
+  assert.ok(Object.values(r.decisions.at(-1).readiness.per_pitch).some(p => p.reasons.includes('A') || p.reasons.includes('S')));
 });
 test('noisy learner never oscillates vocabulary', () => {
   const r = simulate((p, n, b) => b % 2 ? .95 : .3);
@@ -101,6 +112,7 @@ test('demonstrated regression triggers remediation, elapsed time alone does not'
   assert.equal(m.pitches.C.ability_state, 'regressed');
   const prev = schedule(estimate([], 'e', now), null, 1);
   prev.explicit_response_set = CHROMAS;
+  prev.scheduler_decision.active_set = [...CHROMAS];
   assert.equal(schedule(m, prev, 2).scheduler_state_snapshot.roles.C, 'remediation');
 });
 test('distracted performance updates acquisition while canonical evidence is preserved', () => {
@@ -150,6 +162,7 @@ test('sampling is normalized with floors, caps, broad negatives and deterministi
   for (let n = 2; n <= 12; n++) {
     const b = schedule(m, prev, 100 + n);
     b.explicit_response_set = CHROMAS.slice(0, n);
+    b.scheduler_decision.active_set = [...b.explicit_response_set];
     prev = b;
     const next = schedule(m, prev, 200 + n),
       a = next.explicit_response_set;
@@ -166,11 +179,13 @@ test('adaptive stimuli use real instruments, roughly balanced per chroma and not
   const model = estimate([], 'e', now);
   let block = schedule(model, null, 42);
   block.explicit_response_set = CHROMAS;
+  block.scheduler_decision.active_set = [...CHROMAS];
   const perChroma = Object.fromEntries(CHROMAS.map(p => [p, {}]));
   const octavesSeenPerInstrument = new Set();
   for (let b = 0; b < 60; b++) {
     block = schedule(model, block, 1000 + b);
     block.explicit_response_set = CHROMAS;
+  block.scheduler_decision.active_set = [...CHROMAS];
     for (const t of generateSequence(block)) {
       assert.ok(INSTRUMENTS.includes(t.timbre));
       perChroma[t.target_pitch][t.timbre] = (perChroma[t.target_pitch][t.timbre] || 0) + 1;
@@ -270,6 +285,7 @@ test('scheduler responds to measured context differences without inventing obser
   }));
   const m = estimate(rows, 'e', now);
   const prev = {...schedule(m,null,1), explicit_response_set:active};
+  prev.scheduler_decision.active_set = [...active];
   const sober = schedule(m,prev,2,CONFIG,contextKey(contexts[0]));
   const high = schedule(m,prev,2,CONFIG,contextKey(contexts[1]));
   assert.ok(sober.scheduler_decision.balanced_named_accuracy > high.scheduler_decision.balanced_named_accuracy);
@@ -332,13 +348,16 @@ test('same-day acquisition is strong but retention needs delayed retrieval', () 
   assert.equal(estimate(probes,'e',now+180*86400000).pitches['C#'].retention.evidence,2);
   assert.equal(estimate([row('C#','C#',0,{trial_purpose:'probe',delay_since_exposure_ms:86399999})],'e',now).pitches['C#'].retention.evidence,0);
 });
-test('two of three qualified pitches expand with diagnostics and no retention', () => {
+test('overbroad guesses block specificity while another pitch fails recognition', () => {
   const active=['G','C#','E'];
   const rows=active.flatMap(p=>Array.from({length:60},(_,i)=>row(p,p==='E'&&i%2?'G':p,i,{explicit_response_set:active})));
   const m=estimate(rows,'e',now), previous={explicit_response_set:active,response_window_ms:3000,scheduler_decision:{}};
   const b=schedule(m,previous,42);
-  assert.equal(b.explicit_response_set.length,4);
-  assert.equal(b.scheduler_decision.qualified_pitch_count,2);
+  assert.equal(b.explicit_response_set.length,3);
+  assert.equal(b.scheduler_decision.qualified_pitch_count,1);
+  assert.deepEqual(b.scheduler_decision.readiness.per_pitch.G.reasons, ['S']);
+  assert.deepEqual(b.scheduler_decision.readiness.per_pitch.E.reasons, ['A']);
+  assert.deepEqual(b.scheduler_decision.readiness.per_pitch['C#'].reasons, []);
   assert.equal(b.scheduler_state_snapshot.pitches.E.scheduler.qualifies_for_expansion,false);
 });
 test('history rebuild is immutable and reproducible, including compatible v2', () => {
@@ -356,4 +375,25 @@ test('exploration ages label negatives but not inactive acquisition; excluded tr
   assert.equal(b.pitches['F#'].accuracy.evidence,0);
   assert.ok(b.pitches.E.falsePositive.mean<a.pitches.E.falsePositive.mean-.7);
   assert.deepEqual(a.pitches.E.falsePositive,estimate([...old,...fresh.map(t=>({...t,session_type:'benchmark',trial_purpose:'probe'}))],'e',now).pitches.E.falsePositive);
+});
+
+test('candidate introduction promotes without changing the response vocabulary', () => {
+  const r = simulate(() => .99, 100);
+  const i = r.decisions.findIndex(d => d.action === 'promote');
+  assert.ok(i > 0);
+  const before = r.decisions[i - 1], after = r.decisions[i];
+  assert.ok(r.decisions.some(d => d.action === 'activate'));
+  assert.equal(after.active_set.length, before.active_set.length + 1);
+  assert.deepEqual(after.active_set, [...before.active_set, before.candidate.pitch]);
+  assert.equal(after.configuration, before.configuration);
+  assert.equal(r.sizes[i], r.sizes[i - 1]);
+  assert.equal(after.candidate_history.at(-1).outcome, 'promoted');
+});
+test('overbroad error responses are diagnosed as poor specificity', () => {
+  const r = simulate(() => .6, 60, {}, (p, active, random) => random() < .8 && p !== 'E' ? 'E' : active.find(q => q !== p), null,
+    { explicit_response_set: ['E', 'G', 'C#'], response_window_ms: 3000 });
+  const b = r.previous;
+  assert.equal(b.scheduler_decision.readiness.per_pitch.E.S, 0);
+  assert.equal(b.scheduler_decision.readiness.per_pitch.E.qualified, false);
+  assert.ok(b.scheduler_decision.readiness.per_pitch.E.reasons.includes('S'));
 });
