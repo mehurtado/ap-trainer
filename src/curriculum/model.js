@@ -2,10 +2,13 @@ import { CHROMAS } from '../audio/constants.js';
 export const VERSIONS = Object.freeze({
   schema_version: 2,
   learner_model_version: '3',
-  scheduler_version: '3',
+  scheduler_version: '4',
   benchmark_version: '2',
   stimulus_generator_version: '2'
 });
+// Widen this list on upgrades: a current-version check would orphan older history.
+export const COMPATIBLE_LEARNER_MODEL_VERSIONS = Object.freeze(['1', '2', '3']);
+export const STABILITY_WINDOWS = Object.freeze({ stabilityWindow: 8, stabilityMinWindows: 4, stabilityMaxWindows: 8 });
 export const POLICY = Object.freeze({
   adaptive: 1,
   probe: 1.5,
@@ -101,7 +104,7 @@ export function shrinkEstimate(success, total, pooled) {
 
 // Rebuild solely from observations; scheduler roles are deliberately absent here.
 export function estimate(trials, epoch, now = Date.now(), criteria = CRITERIA, recency = RECENCY) {
-  const valid = trials.filter(t => eligible(t) && t.schema_version === 2 && ['1', '2', VERSIONS.learner_model_version].includes(t.learner_model_version) && t.stimulus_generator_version === VERSIONS.stimulus_generator_version && CHROMAS.includes(t.target_pitch) && Array.isArray(t.explicit_response_set) && Number.isFinite(Date.parse(t.timestamp))).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const valid = trials.filter(t => eligible(t) && t.schema_version === 2 && COMPATIBLE_LEARNER_MODEL_VERSIONS.includes(t.learner_model_version) && t.stimulus_generator_version === VERSIONS.stimulus_generator_version && CHROMAS.includes(t.target_pitch) && Array.isArray(t.explicit_response_set) && Number.isFinite(Date.parse(t.timestamp))).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const pitches = Object.fromEntries(CHROMAS.map(p => {
     const exposures = valid.filter(t => t.target_pitch === p);
     const named = exposures.filter(t => t.explicit_response_set.includes(p));
@@ -116,6 +119,12 @@ export function estimate(trials, epoch, now = Date.now(), criteria = CRITERIA, r
     const accuracy = beta(sum(acquisition, t => t.correct), sum(acquisition));
     const negatives = valid.filter(t => t.target_pitch !== p && t.explicit_response_set.includes(p) && purposeWeight(t) > 0);
     const falsePositive = beta(sum(negatives, t => t.response === p), sum(negatives));
+    // Raw, disjoint epoch windows: decay would manufacture drift across windows.
+    const epochRows = acquisition.filter(t => t.training_epoch === epoch);
+    const w = STABILITY_WINDOWS.stabilityWindow;
+    const windows = Math.min(STABILITY_WINDOWS.stabilityMaxWindows, Math.floor(epochRows.length / w));
+    const windowRows = windows >= STABILITY_WINDOWS.stabilityMinWindows ? epochRows.slice(-windows * w) : [];
+    const windowMeans = windowRows.length ? Array.from({ length: windows }, (_, i) => rate(windowRows.slice(i * w, (i + 1) * w))) : null;
     const recent = acquisition.filter(t => t.training_epoch === epoch).slice(-30);
     const rt = median(recent.filter(t => t.correct).map(t => t.latency_ms).filter(Number.isFinite));
     const sessions = new Set(acquisition.filter(t => t.training_epoch === epoch).map(t => t.session_id)).size;
@@ -197,12 +206,16 @@ export function estimate(trials, epoch, now = Date.now(), criteria = CRITERIA, r
       },
       retention: {
         ...retention,
+        retention_opportunities: new Set(acquisition.filter(t => Number.isFinite(t.delay_since_exposure_ms) && t.delay_since_exposure_ms >= recency.minimumRetentionDelayMs).map(t => t.session_id)).size,
         delayed_probes: retention.delayed_probe_count,
         delayed_correct: retention.delayed_correct_count,
         last_exposure: exposures.at(-1)?.timestamp ?? null,
         last_probe: retention.last_probe_at,
         previously_strong: previouslyStrong
       },
+      recent_window_means: windowMeans,
+      recent_window_size: w,
+      recent_window_rate: rate(windowRows),
       trend: recent.length >= 12 ? rate(recent.slice(-6)) - rate(recent.slice(-12, -6)) : null
     }];
   }));

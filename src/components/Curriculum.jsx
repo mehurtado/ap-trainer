@@ -3,13 +3,21 @@ import { CHROMAS, INSTRUMENTS, nearestSample, chromaOctaveToHz } from '../audio/
 import { audioEngine } from '../audio/AudioEngine.js';
 import { getAllTrials, getMeta, setMeta, getRecords, putRecord, saveTrial, exportJSON } from '../db/db.js';
 import { estimate, VERSIONS, contextKey, benchmarkEligible, isCanonical } from '../curriculum/model.js';
-import { schedule, generateSequence } from '../curriculum/scheduler.js';
+import { schedule, generateSequence, CONFIG } from '../curriculum/scheduler.js';
 import { benchmark } from '../curriculum/benchmark.js';
 import { playStimulus } from '../curriculum/audio.js';
 import './Curriculum.css';
 import WipeScreen from './WipeScreen.jsx';
 import CurriculumAnalytics from './CurriculumAnalytics.jsx';
 const pct = v => v == null ? '—' : `${Math.round(v * 100)}%`;
+const reasonText = {
+  measured: 'Still gathering evidence on this note under the current set of choices.',
+  A: 'Not recognized reliably enough yet — accuracy needs to come up.',
+  S: "Recognized well, but this note is also being guessed when it isn't playing — the category is still too broad.",
+  retention: 'Waiting on a delayed check — this note needs to be recalled a day or more after practice.'
+};
+const holdText = { evidence: 'Gathering evidence', learning: 'Still learning the new note', interference: 'An established note has dipped', load: 'The current set needs more practice', regression: 'An established note needs attention' };
+const gateText = { qualification: 'more notes ready', evidence: 'enough evidence across the set', load: 'the current set to feel easier', capacity: 'space for another note', regression: 'an established note to recover', readiness: 'overall readiness', candidate_slot: 'the current trial to finish', measured: 'every note to be measured' };
 const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const id = () => crypto.randomUUID();
 export default function Curriculum({
@@ -32,6 +40,10 @@ export default function Curriculum({
     [answer, setAnswer] = useState(null),
     [second, setSecond] = useState(''),
     [busy, setBusy] = useState(false);
+  const [candidateOverride, setCandidateOverride] = useState({ withdraw: false, excluded: [] });
+  const [perturbation, setPerturbation] = useState(null);
+  const [pauseReason, setPauseReason] = useState('');
+  const [dismissedNotices, setDismissedNotices] = useState([]);
   const [wipeProgress, setWipeProgress] = useState(0);
   const gate = useRef(false),
     timer = useRef(null),
@@ -43,7 +55,7 @@ export default function Curriculum({
   useEffect(() => {
     let live = true;
     const lifecycle = generation;
-    Promise.all([getAllTrials(), getMeta('curriculumEpoch'), getRecords('blocks')]).then(async ([trials, epoch, blocks]) => {
+    Promise.all([getAllTrials(), getMeta('curriculumEpoch'), getRecords('blocks'), getMeta('candidateOverride'), getMeta('readinessPerturbation')]).then(async ([trials, epoch, blocks, override, perturb]) => {
       if (!epoch) {
         epoch = id();
         await putRecord('epochs', {
@@ -54,6 +66,7 @@ export default function Curriculum({
         });
         await setMeta('curriculumEpoch', epoch);
       }
+      if (live) { setCandidateOverride(override ?? { withdraw: false, excluded: [] }); setPerturbation(perturb ?? null); }
       if (live) setData({
         trials,
         epoch,
@@ -96,7 +109,9 @@ export default function Curriculum({
         }))
       };
     } else {
-      b = schedule(m, previous, seed(), undefined, contextKey(s));
+      const override = await getMeta('candidateOverride') ?? { withdraw: false, excluded: [] };
+      const perturb = await getMeta('readinessPerturbation') ?? null;
+      b = schedule(m, previous, seed(), { ...CONFIG, candidateOverride: override, readinessPerturbation: perturb }, contextKey(s));
       b.trials = generateSequence(b);
       if (s.session_type === 'mapping') b.trials = b.trials.map(t => ({
         ...t,
@@ -112,8 +127,17 @@ export default function Curriculum({
       block_index: fresh.blocks.filter(x => x.session_id === s.id).length,
       created_at: new Date().toISOString()
     };
+    if (b.scheduler_decision?.action === 'activate') b.scheduler_decision.candidate.introduced_at_block_id = b.id;
     b.trials = b.trials.map(t => ({ ...t, intertrial_ms: 10000 }));
     await putRecord('blocks', b);
+    if (b.scheduler_decision?.action === 'withdraw') {
+      const override = await getMeta('candidateOverride') ?? { excluded: [] };
+      const withdrawn = b.scheduler_decision.candidate_history.at(-1).pitch;
+      await saveOverride({ ...override, withdraw: false, excluded: [...new Set([...override.excluded, withdrawn])] });
+    }
+    if (b.scheduler_decision?.action === 'activate' && b.scheduler_decision.readiness.perturbation) {
+      await setMeta('readinessPerturbation', null); setPerturbation(null);
+    }
     await warmSamples(b.trials);
     setData({
       ...fresh,
@@ -330,6 +354,21 @@ export default function Curriculum({
       setError(e.message);
     }
   }
+  async function saveOverride(value) {
+    await setMeta('candidateOverride', value); setCandidateOverride(value);
+  }
+  async function pauseCandidate() {
+    try {
+      // The vocabulary changes only when the next block is scheduled.
+      await saveOverride({ ...candidateOverride, withdraw: true, reason: pauseReason || 'Paused after reviewing the learner map' });
+    } catch (e) { setError(e.message); }
+  }
+  async function togglePerturbation() {
+    try {
+      const value = perturbation ? null : { delta: .06, direction: 'below' };
+      await setMeta('readinessPerturbation', value); setPerturbation(value);
+    } catch (e) { setError(e.message); }
+  }
   async function backup() {
     try {
       const blob = new Blob([JSON.stringify(await exportJSON())], {
@@ -345,6 +384,9 @@ export default function Curriculum({
       setError(e.message);
     }
   }
+  const latest = data?.blocks.filter(b => b.session_type === 'adaptive' && b.training_epoch === data.epoch).at(-1);
+  const decision = latest?.scheduler_decision;
+  const currentCandidate = decision?.candidate;
   if (!data) return <main className="curriculum"><h1>AP Trainer</h1><p>{error || 'Loading your history…'}</p></main>;
   if (view === 'wipe') return <WipeScreen progress={wipeProgress} onQuit={finish} />;
   if (view === 'home') return <div className="screen home-screen">
@@ -358,24 +400,24 @@ export default function Curriculum({
     </div>
   </div>;
   return <main className="curriculum"><header><h1>AP Trainer</h1><p>Absolute pitch training</p></header>{error && <p role="alert">{error}</p>}
- {view === 'settings' && <><h2>Settings</h2><div className="curriculum-controls"><label>Experience <select value={experience} onChange={e => setExperience(e.target.value)}><option value="new">New / untrained</option><option value="returning">Returning / pretrained</option></select></label><label><input type="checkbox" checked={sober} onChange={e => setSober(e.target.checked)} /> Sober</label><label><input type="checkbox" checked={focused} onChange={e => setFocused(e.target.checked)} /> Focused, no concurrent task</label><label>Alertness <select value={alertness} onChange={e => setAlertness(e.target.value)}><option>ordinary</option><option>high</option><option>low</option></select></label><label>Audio <select value={output} onChange={e => setOutput(e.target.value)}><option>headphones</option><option>speakers</option><option>other</option></select></label><label>Context / notes <input value={notes} onChange={e => setNotes(e.target.value)} /></label></div><details><summary>Training tools</summary><div className="curriculum-actions"><button disabled={busy} onClick={() => start('mapping')}>Check starting ability</button><button disabled={busy} onClick={() => start('benchmark')}>Benchmark · 72 trials</button><button onClick={() => setView('map')}>Learner diagnostics</button><button onClick={backup}>Download full backup</button><button onClick={newEpoch}>Restart learning estimates</button></div><p>Restarting estimates preserves your history and gives earlier results less weight.</p></details><button onClick={() => setView('home')}>Back</button></>}
+ {view === 'settings' && <><h2>Settings</h2>{(currentCandidate || candidateOverride.excluded.length > 0) && <section><h3>Notes on trial</h3>{currentCandidate && <><p>{currentCandidate.pitch} · {currentCandidate.blocks_held} blocks held · {holdText[currentCandidate.hold_reason] ?? 'Ready for regular practice'}</p><p>Recent trend: {model.pitches[currentCandidate.pitch].trend == null ? 'not enough data yet' : Math.round(model.pitches[currentCandidate.pitch].trend * 100) + ' percentage points'}. Review several blocks before deciding to pause.</p><label>Reason for pausing <input value={pauseReason} onChange={e => setPauseReason(e.target.value)} /></label><button disabled={candidateOverride.withdraw} onClick={pauseCandidate}>{candidateOverride.withdraw ? 'Pause queued for next block' : 'Pause this trial'}</button></>}{candidateOverride.excluded.map(p => <p key={p}>{p} · Set aside <button onClick={() => saveOverride({ ...candidateOverride, excluded: candidateOverride.excluded.filter(q => q !== p) }).catch(e => setError(e.message))}>Try this again: {p}</button></p>)}</section>}<details><summary>Expansion experiment</summary><p>For one new-note introduction, lower the overall readiness threshold by six points. Recognition and specificity requirements stay in place. This is an optional experiment, not a faster learning mode.</p><button onClick={togglePerturbation}>{perturbation ? 'Cancel expansion experiment' : 'Allow one threshold experiment'}</button></details><div className="curriculum-controls"><label>Experience <select value={experience} onChange={e => setExperience(e.target.value)}><option value="new">New / untrained</option><option value="returning">Returning / pretrained</option></select></label><label><input type="checkbox" checked={sober} onChange={e => setSober(e.target.checked)} /> Sober</label><label><input type="checkbox" checked={focused} onChange={e => setFocused(e.target.checked)} /> Focused, no concurrent task</label><label>Alertness <select value={alertness} onChange={e => setAlertness(e.target.value)}><option>ordinary</option><option>high</option><option>low</option></select></label><label>Audio <select value={output} onChange={e => setOutput(e.target.value)}><option>headphones</option><option>speakers</option><option>other</option></select></label><label>Context / notes <input value={notes} onChange={e => setNotes(e.target.value)} /></label></div><details><summary>Training tools</summary><div className="curriculum-actions"><button disabled={busy} onClick={() => start('mapping')}>Check starting ability</button><button disabled={busy} onClick={() => start('benchmark')}>Benchmark · 72 trials</button><button onClick={() => setView('map')}>Learner diagnostics</button><button onClick={backup}>Download full backup</button><button onClick={newEpoch}>Restart learning estimates</button></div><p>Restarting estimates preserves your history and gives earlier results less weight.</p></details><button onClick={() => setView('home')}>Back</button></>}
  {view === 'trial' && <><h2>Trial {index + 1} / {block.trials.length}</h2><p aria-live="polite">{ready ? 'Identify the pitch' : 'Listen…'}</p><PitchGrid selectable={block.explicit_response_set} handler={(p, input) => capture(p, index, input)} disabled={!ready} /></>}
  {view === 'confidence' && <div className="confidence-overlay"><p>How sure are you?</p>{[[.4, 'Low'], [.7, 'Medium'], [.95, 'High']].map(([value, label]) => <button className="conf-btn" key={value} disabled={busy} onClick={() => record(value)}>{label}</button>)}<details><summary>Second instinct</summary><label>Another guess <select value={second} onChange={e => {
           setSecond(e.target.value);
           secondLatency.current = performance.now() - secondStart.current;
         }}><option value="">None</option>{block.explicit_response_set.map(p => <option key={p}>{p}</option>)}{block.explicit_response_set.length < 12 && <option>OTHER</option>}</select></label></details></div>}
  {view === 'feedback' && <><h2>{answer.trial_purpose === 'training' ? answer.correct ? 'Correct' : 'Keep listening' : 'Response saved'}</h2>{answer.trial_purpose === 'training' && <p>Target: {answer.target_pitch}{block.explicit_response_set.includes(answer.target_pitch) ? '' : ' · OTHER'} · Your answer: {answer.response}</p>}<button onClick={next}>{index + 1 === block.trials.length ? 'Review block' : 'Next trial'}</button></>}
- {view === 'summary' && <><h2>{session.session_type === 'benchmark' ? 'Benchmark results' : 'Round complete'}</h2><p>{session.session_type === 'adaptive' ? 'Here’s how that round went.' : 'Your answers are ready to review.'}</p><p>Note accuracy: {pct((() => {
+ {view === 'summary' && <>{(block.scheduler_decision?.notices ?? []).filter(message => !dismissedNotices.includes(block.id + message)).map(message => <div role="status" key={message}><p>{message}</p><button onClick={() => setDismissedNotices([...dismissedNotices, block.id + message])}>Dismiss notice</button></div>)}<h2>{session.session_type === 'benchmark' ? 'Benchmark results' : 'Round complete'}</h2><p>{session.session_type === 'adaptive' ? 'Here’s how that round went.' : 'Your answers are ready to review.'}</p><p>Note accuracy: {pct((() => {
           const rates = block.explicit_response_set.map(p => results.filter(t => t.target_pitch === p)).filter(a => a.length).map(a => a.filter(t => t.correct).length / a.length);
           return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
         })())}</p><p>Other-note accuracy: {pct((() => {
           const a = results.filter(t => !block.explicit_response_set.includes(t.target_pitch));
           return a.length ? a.filter(t => t.correct).length / a.length : null;
         })())}</p><details><summary>Review responses</summary>{results.map((t, i) => <p key={i}>{i + 1}. {t.target_pitch} → {t.response} · {t.correct ? 'correct' : 'incorrect'}</p>)}</details>{session.session_type === 'adaptive' && <button onClick={() => createBlock(session).then(b => play(0, b)).catch(e => setError(e.message))}>Keep going</button>}<button onClick={finish}>Finish session</button></>}
- {view === 'map' && <><h2>Your twelve-pitch learner map</h2><p>Stability requires specificity, speed, multiple sessions, and delayed probes. Estimated ranges show uncertainty.</p><div className="pitch-map">{CHROMAS.map(p => {
+ {view === 'map' && <><h2>Your twelve-pitch learner map</h2><p>Stability requires specificity, speed, multiple sessions, and delayed probes. Estimated ranges show uncertainty.</p><p>Readiness when this round was scheduled: {pct(decision?.readiness?.set)} · Current threshold: {pct(decision?.readiness?.perturbation?.threshold_used ?? decision?.readiness?.threshold)}.</p>{currentCandidate ? <p>Current trial: {currentCandidate.pitch}. {holdText[currentCandidate.hold_reason] ?? 'Seeing how the new note fits'}.</p> : decision?.expansion_gates && <p>Waiting on: {Object.entries(decision.expansion_gates).filter(([, passed]) => !passed).map(([key]) => gateText[key]).join(', ') || 'nothing — ready to consider another note'}.</p>}<div className="pitch-map">{CHROMAS.map(p => {
           const s = model.pitches[p],
-            last = data.blocks.filter(b => b.session_type === 'adaptive').at(-1);
-          return <article key={p}><h3>{p} · {s.ability_state}</h3><p>Role: {last?.scheduler_state_snapshot.roles[p] ?? 'exploration'}</p><p>{s.observation_count} named observations · {s.exposure_count} encounters</p><p>Effective acquisition evidence: {s.accuracy.evidence.toFixed(1)} weighted trials</p><p>Retention: {s.retention.stable ? 'demonstrated' : 'not yet demonstrated'} · {pct(s.retention.mean)} ({pct(s.retention.lower)}–{pct(s.retention.upper)}) · {s.retention.evidence.toFixed(1)} effective probes</p><p>Acquisition: {s.acquisition_state} · Sober transfer: {s.canonical_estimate.status} · Cross-context: {s.context_generalization}</p><details><summary>Context estimates</summary>{Object.entries(s.contexts).map(([key, c]) => <p key={key}>{key}: {c.observation_count} observations · estimated accuracy {pct(c.shrunk_accuracy)} · median {c.median_rt == null ? '—' : Math.round(c.median_rt) + ' ms'}</p>)}</details><p>Canonical: {pct(s.canonical_accuracy)} · Estimate {pct(s.accuracy.lower)}–{pct(s.accuracy.upper)}</p><p>Training: {pct(s.training_accuracy)} · Benchmark: {pct(s.benchmark_accuracy)}</p><p>Median RT: {s.median_rt == null ? '—' : `${Math.round(s.median_rt)} ms`} · Trend: {s.trend == null ? '—' : `${Math.round(s.trend * 100)} points`}</p><p>False positives: {pct(s.falsePositive.mean)} · Upper bound {pct(s.falsePositive.upper)}</p><p>Confidence error (Brier): {s.confidence_calibration?.toFixed(2) ?? '—'}</p><p>Delayed probes: {s.retention.delayed_correct}/{s.retention.delayed_probes} · Last probe: {s.retention.last_probe ?? 'none'}</p><details><summary>Confusions & robustness</summary><p>{Object.entries(s.confusion_counts).filter(([q, n]) => q !== p && n).sort((a, b) => b[1] - a[1]).map(([q, n]) => `${q}: ${n}`).join(' · ') || 'No observed confusions'}</p>{Object.entries(s.robustness).map(([key, groups]) => <p key={key}>{key}: {Object.entries(groups).map(([k, v]) => `${k} ${pct(v.accuracy)} (n=${v.count})`).join(' · ') || 'No evidence'}</p>)}</details></article>;
+            last = latest, r = decision?.readiness?.per_pitch?.[p], tier = last?.scheduler_state_snapshot?.pitches?.[p]?.scheduler?.tier;
+          return <article key={p}><h3>{p} · {s.ability_state}</h3><p>{r ? reasonText[r.reasons.find(reason => !(reason === 'retention' && r.retention_report_only))] ?? "Ready. This note isn't holding anything back." : 'Still gathering evidence on this note under the current set of choices.'}</p>{r?.retention_report_only && <p>Retention check is still pending for this note, but it is no longer holding anything up.</p>}{tier === 'candidate' && <p>Being trialled — appearing occasionally while we see how it fits.</p>}<details><summary>Details</summary>{[['A', 'Recognition'], ['S', 'Specificity'], ['U', 'Certainty']].map(([key, label]) => <p key={key}>{label}: {pct(r?.[key])}{r?.[key] == null ? ' — not yet measured' : ''}</p>)}<p>Recent variability: {r?.stability ? pct(r.stability.D) + ' (approximate reference: ' + pct(r.stability.reference_band) + ')' : 'not enough data yet'}. This diagnostic does not decide readiness.</p></details><p>Role: {last?.scheduler_state_snapshot?.roles?.[p] ?? 'exploration'}</p><p>{s.observation_count} named observations · {s.exposure_count} encounters</p><p>Effective acquisition evidence: {s.accuracy.evidence.toFixed(1)} weighted trials</p><p>Retention: {s.retention.stable ? 'demonstrated' : 'not yet demonstrated'} · {pct(s.retention.mean)} ({pct(s.retention.lower)}–{pct(s.retention.upper)}) · {s.retention.evidence.toFixed(1)} effective probes</p><p>Acquisition: {s.acquisition_state} · Sober transfer: {s.canonical_estimate.status} · Cross-context: {s.context_generalization}</p><details><summary>Context estimates</summary>{Object.entries(s.contexts).map(([key, c]) => <p key={key}>{key}: {c.observation_count} observations · estimated accuracy {pct(c.shrunk_accuracy)} · median {c.median_rt == null ? '—' : Math.round(c.median_rt) + ' ms'}</p>)}</details><p>Canonical: {pct(s.canonical_accuracy)} · Estimate {pct(s.accuracy.lower)}–{pct(s.accuracy.upper)}</p><p>Training: {pct(s.training_accuracy)} · Benchmark: {pct(s.benchmark_accuracy)}</p><p>Median RT: {s.median_rt == null ? '—' : `${Math.round(s.median_rt)} ms`} · Trend: {s.trend == null ? '—' : `${Math.round(s.trend * 100)} points`}</p><p>False positives: {pct(s.falsePositive.mean)} · Upper bound {pct(s.falsePositive.upper)}</p><p>Confidence error (Brier): {s.confidence_calibration?.toFixed(2) ?? '—'}</p><p>Delayed probes: {s.retention.delayed_correct}/{s.retention.delayed_probes} · Last probe: {s.retention.last_probe ?? 'none'}</p><details><summary>Confusions & robustness</summary><p>{Object.entries(s.confusion_counts).filter(([q, n]) => q !== p && n).sort((a, b) => b[1] - a[1]).map(([q, n]) => `${q}: ${n}`).join(' · ') || 'No observed confusions'}</p>{Object.entries(s.robustness).map(([key, groups]) => <p key={key}>{key}: {Object.entries(groups).map(([k, v]) => `${k} ${pct(v.accuracy)} (n=${v.count})`).join(' · ') || 'No evidence'}</p>)}</details></article>;
         })}</div><CurriculumAnalytics trials={data.trials.filter(t => t.schema_version === 2)} blocks={data.blocks} model={model} /><h2>Benchmark history</h2>{data.blocks.filter(b => b.session_type === 'benchmark').map(b => {
         const rows = data.trials.filter(t => t.block_id === b.id);
         return <p key={b.id}>{b.created_at} · v{b.benchmark_version} · {rows.length}/{b.block_length} trials · {rows.length !== b.block_length ? 'incomplete' : rows.every(t => isCanonical(t) && t.session_context?.audio_output === 'headphones') ? pct(rows.filter(t => t.correct).length / rows.length) : 'nonstandard conditions — excluded from comparison'}</p>;
