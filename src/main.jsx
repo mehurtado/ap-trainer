@@ -2,12 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { backfillAllMissingIds } from './db/db.js'
+import { initializeCloud } from './cloud/runtime.js'
 
-backfillAllMissingIds().catch((error) => console.error('uuid backfill failed', error))
-
-createRoot(document.getElementById('root')).render(
+const root = createRoot(document.getElementById('root'));
+root.render(<main><h1>AP Trainer</h1><p role="status">Opening your saved history…</p></main>);
+initializeCloud().then(() => root.render(
   <StrictMode>
     <App />
   </StrictMode>,
-)
+)).catch(error => root.render(<main><h1>AP Trainer</h1><p role="alert">{error.message}</p><button onClick={() => location.reload()}>Retry loading</button></main>))

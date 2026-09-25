@@ -1,3 +1,4 @@
+import AppNav from './components/AppNav.jsx';
 import { useGameState } from './hooks/useGameState.js';
 import { useTheme } from './hooks/useTheme.js';
 import HomeScreen from './components/HomeScreen.jsx';
@@ -9,39 +10,54 @@ import AmbientLog from './components/AmbientLog.jsx';
 import ProgressionScreen from './components/ProgressionScreen.jsx';
 import ProgressionFeedback from './components/ProgressionFeedback.jsx';
 import './App.css';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import Account from './components/Account.jsx';
+import { subscribeCloud, getCloudSnapshot } from './cloud/runtime.js';
 import Curriculum from './components/Curriculum.jsx';
 
 export default function App() {
   const [manual, setManual] = useState(false);
+  const [dashboard, setDashboard] = useState(false);
+  const [trainingView, setTrainingView] = useState('home');
   const [pendingScreen, setPendingScreen] = useState(null);
   const { theme, toggle: toggleTheme } = useTheme();
-  return manual
+  const cloud = useSyncExternalStore(subscribeCloud, getCloudSnapshot);
+  if (!cloud.ready) return <p>Switching account…</p>;
+  const goTraining = () => { setTrainingView('home'); setDashboard(false); setManual(false); setPendingScreen(null); };
+  const goPractice = () => { setDashboard(false); setManual(true); setPendingScreen(null); };
+  const goDashboard = () => { setDashboard(true); setManual(false); };
+  const goSettings = () => { setTrainingView('settings'); setDashboard(false); setManual(false); };
+  const goDetails = () => { setTrainingView('map'); setDashboard(false); setManual(false); };
+  return <><Account />{dashboard ? <Dashboard onBack={goTraining} onPractice={goPractice} onSettings={goSettings} onDetails={goDetails} /> : manual
     ? <ManualPractice
-        onReturn={() => { setManual(false); setPendingScreen(null); }}
+        onReturn={goTraining}
+        onDashboard={goDashboard}
+        onSettings={goSettings}
+        onDetails={goDetails}
         initialScreen={pendingScreen}
         theme={theme}
         toggleTheme={toggleTheme}
       />
     : <Curriculum
-        onManual={() => setManual(true)}
-        onDashboard={() => { setManual(true); setPendingScreen('dashboard'); }}
+        initialView={trainingView}
+        onManual={goPractice}
+        onDashboard={goDashboard}
         theme={theme}
         toggleTheme={toggleTheme}
-      />;
+      />}</>;
 }
 
-function ManualPractice({ onReturn, initialScreen, theme, toggleTheme }) {
+function ManualPractice({ onReturn, onDashboard, onSettings, onDetails, initialScreen, theme, toggleTheme }) {
   const g = useGameState(initialScreen);
   if (g.screen === 'home') {
     return (
-      <><button className="back-btn" onClick={onReturn}>Back to training</button><HomeScreen manualOnly
+      <><AppNav current="practice" onTraining={onReturn} onDashboard={onDashboard} onSettings={onSettings} onDetails={onDetails} /><HomeScreen manualOnly
         level={g.level}
         streak={g.streak}
         onStartEvening={() => g.startSession('evening')}
         onStartColdStart={() => g.startSession('cold_start')}
         onStartMicro={g.startMicro}
-        onDashboard={() => g.setScreen('dashboard')}
+        onDashboard={onDashboard}
         onAmbient={() => g.setScreen('ambient')}
         onSetLevel={g.setLevel}
         onStartDrill={g.startDrill}

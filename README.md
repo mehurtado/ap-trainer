@@ -2,6 +2,10 @@
 
 A browser-based absolute pitch training application. Plays musical tones and asks you to identify the note by ear, tracking accuracy over time and adapting to your weaknesses.
 
+## Accounts and cross-device sync
+
+AP Trainer remains local-first and supports optional email/password accounts with automatic Supabase synchronization. Training works without an account; signing in enables a private local replica and background cloud sync. See [deployment and operating instructions](docs/cloud-sync-operations.md) and the [implementation plan](docs/cloud-sync-plan.md). Back up existing phone data before enabling a deployment.
+
 ## How it works
 
 Each trial plays a tone and presents a grid of note buttons. You have 1.5 seconds to respond. The app records whether you were correct, how long you took, your confidence, and whether you had an immediate "second instinct" for the correct note even when you answered wrong.
@@ -170,7 +174,7 @@ Export via **Dashboard → Export CSV** produces `trials.csv` and `ambient.csv`.
 
 ## Architecture notes
 
-- **No backend.** All data is stored in IndexedDB in the browser. Nothing is sent to any server.
+- **Local-first, optional cloud.** Training data is saved in IndexedDB. Signed-in users automatically synchronize their own history to the configured Supabase project; local-only mode sends no training history.
 - **Theming** uses CSS custom properties (`--bg`, `--text`, etc.) with a `data-theme` attribute on `<html>`. A synchronous inline script in `index.html` sets the theme before React mounts, preventing flash-of-wrong-theme.
 - **Pitch-shifting** for detuned stimuli uses `AudioBufferSourceNode.detune` (Web Audio API). For instruments with sparse sample sets, `nearestSample()` finds the closest recorded pitch and shifts from there.
 - **Sample loading** is lazy — samples are fetched on first play and cached in memory for the session.
