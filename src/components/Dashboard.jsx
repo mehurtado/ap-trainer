@@ -1,5 +1,7 @@
+import AppNav from './AppNav.jsx';
+import ProgressOverview from './ProgressOverview.jsx';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { getAllTrials, exportCSV, exportJSON, importJSON, clearHistory, computeBackupSummary } from '../db/db.js';
+import { getAllTrials, exportCSV, exportJSON, importJSON, clearHistory, computeBackupSummary, subscribeData, getRepository, getRecords, getMeta } from '../db/db.js';
 import { CHROMAS, INSTRUMENTS } from '../audio/constants.js';
 
 // ── Data builders ──────────────────────────────────────────────────────────
@@ -333,8 +335,13 @@ function ProgressionStats({ trials }) {
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function Dashboard({ onBack }) {
-  const [trials, setTrials]           = useState([]);
+export default function Dashboard({ onBack, onPractice, onSettings, onDetails }) {
+  const [allTrials, setAllTrials] = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [epoch, setEpoch] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const trials = useMemo(() => allTrials.filter(t => t.schema_version !== 2 || t.trial_purpose === 'manual'), [allTrials]);
   const [matrixFilter, setMatrixFilter] = useState('all');
   const [exporting, setExporting]     = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
@@ -347,7 +354,11 @@ export default function Dashboard({ onBack }) {
   const restoreInputRef = useRef(null);
 
   useEffect(() => {
-    getAllTrials().then(rows => setTrials(rows.filter(t => t.schema_version !== 2 || t.trial_purpose === 'manual')));
+    let live = true;
+    const refresh = () => Promise.all([getAllTrials(), getRecords('blocks'), getMeta('curriculumEpoch')]).then(([rows, rounds, currentEpoch]) => { if (live) { setAllTrials(rows); setBlocks(rounds); setEpoch(currentEpoch); setLoadError(''); } }).catch(error => { if (live) setLoadError(error.message); }).finally(() => { if (live) setLoading(false); });
+    refresh();
+    const unsubscribe = subscribeData(type => { if (type === 'pull') refresh(); });
+    return () => { live = false; unsubscribe(); };
   }, []);
 
   // Chord-progression trials are tracked separately from single-note trials so
@@ -372,10 +383,12 @@ export default function Dashboard({ onBack }) {
 
   async function doWipe() {
     setWiping(true);
-    await clearHistory();
-    setTrials([]);
-    setWiping(false);
-    setConfirmWipe(false);
+    try {
+      await clearHistory();
+      setAllTrials([]); setBlocks([]); setEpoch(null);
+      setConfirmWipe(false);
+    } catch (error) { setRestoreMsg(error.message); }
+    finally { setWiping(false); }
   }
 
   // Full-fidelity JSON backup, for carrying history across origins (e.g. a
@@ -461,8 +474,9 @@ export default function Dashboard({ onBack }) {
     setRestoring(true);
     try {
       const data = JSON.parse(await file.text());
+      if (getRepository().owner && !data.owner_id && !confirm('Import this backup into your current signed-in account? Imported history will sync to that account.')) { setRestoring(false); return; }
       const { trials: n, ambient: m } = await importJSON(data);
-      setTrials((await getAllTrials()).filter(t => t.schema_version !== 2 || t.trial_purpose === 'manual'));
+      setAllTrials(await getAllTrials()); setBlocks(await getRecords('blocks')); setEpoch(await getMeta('curriculumEpoch'));
       setRestoreMsg(`Restored ${n} trials, ${m} ambient entries.`);
     } catch (err) {
       setRestoreMsg(`Restore failed: ${err.message}`);
@@ -569,9 +583,9 @@ export default function Dashboard({ onBack }) {
 
   return (
     <div className="screen dashboard-screen">
+      <AppNav current="dashboard" onTraining={onBack} onPractice={onPractice} onSettings={onSettings} onDetails={onDetails} />
       <div className="dash-header">
-        <button className="back-btn" onClick={onBack}>← Back</button>
-        <h2>Dashboard</h2>
+        <div><h1>Dashboard</h1><p>Your progress, practice history, and backups.</p></div>
         <div className="dash-actions">
           <button className="export-btn" onClick={doExport} disabled={exporting}>
             {exporting ? '...' : 'Export CSV'}
@@ -590,7 +604,7 @@ export default function Dashboard({ onBack }) {
             onChange={doRestoreFile}
           />
           <button className="wipe-btn" onClick={() => setConfirmWipe(true)} disabled={confirmWipe}>
-            Wipe History
+            {getRepository().owner ? 'Clear local cache' : 'Clear local history'}
           </button>
         </div>
       </div>
@@ -621,14 +635,18 @@ export default function Dashboard({ onBack }) {
 
       {confirmWipe && (
         <div className="wipe-confirm-bar">
-          <span>Delete all trial and ambient data?</span>
+          <span>{getRepository().owner ? 'Remove this device’s cache? Cloud history will download again. Sync pending changes first.' : 'Delete local training history? Export a backup first.'}</span>
           <button className="back-btn" onClick={() => setConfirmWipe(false)}>Cancel</button>
           <button className="wipe-btn danger" onClick={doWipe} disabled={wiping}>
-            {wiping ? '...' : 'Yes, wipe'}
+            {wiping ? '...' : 'Confirm clear'}
           </button>
         </div>
       )}
 
+      {loadError && <p role="alert">Could not load progress: {loadError}. Reload the page to try again.</p>}
+      {loading ? <p role="status">Loading your progress…</p> : !loadError && <ProgressOverview trials={allTrials} blocks={blocks} epoch={epoch} />}
+      <details className="manual-history"><summary>Manual practice history · {trials.length} responses</summary>
+      <p>Drills, custom practice, chord progressions, and older sessions. These results are separate from adaptive training above. Small numbers next to percentages are trial counts.</p>
       <div className="stats-grid">
         <div className="stat-card">
           <span className="stat-value">{totalTrials}</span>
@@ -645,7 +663,7 @@ export default function Dashboard({ onBack }) {
         {siAcc !== '--' && (
           <div className="stat-card" data-tip="How often your gut instinct was correct">
             <span className="stat-value">{siAcc}%</span>
-            <span className="stat-label">SI accuracy</span>
+            <span className="stat-label">Second-guess accuracy</span>
           </div>
         )}
         <div className="stat-card">
@@ -662,19 +680,19 @@ export default function Dashboard({ onBack }) {
         </div>
         <div className="stat-card">
           <span className="stat-value">{avgRt}{avgRt !== '--' ? 'ms' : ''}</span>
-          <span className="stat-label">avg RT (all)</span>
+          <span className="stat-label">Average response time</span>
         </div>
         <div className="stat-card">
           <span className="stat-value">{avgRtCorrect}{avgRtCorrect !== '--' ? 'ms' : ''}</span>
-          <span className="stat-label">avg RT (correct)</span>
+          <span className="stat-label">Correct response time</span>
         </div>
         <div className="stat-card">
           <span className="stat-value">{earlyAccPct}{earlyAccPct !== '--' ? '%' : ''}</span>
-          <span className="stat-label">Early Acc (1-10)</span>
+          <span className="stat-label">First 10 responses</span>
         </div>
         <div className="stat-card">
           <span className="stat-value">{lateAccPct}{lateAccPct !== '--' ? '%' : ''}</span>
-          <span className="stat-label">Late Acc (11+)</span>
+          <span className="stat-label">Later responses</span>
         </div>
       </div>
 
@@ -685,9 +703,11 @@ export default function Dashboard({ onBack }) {
 
       <ProgressionStats trials={progTrials} />
 
+      <p>Confusion map: rows are the note played; columns are your answer. Numbers count incorrect named answers.</p>
       <div className="matrix-filter">
         <select
           className="filter-dropdown"
+          aria-label="Filter manual note confusions"
           value={matrixFilter}
           onChange={e => setMatrixFilter(e.target.value)}
         >
@@ -713,8 +733,9 @@ export default function Dashboard({ onBack }) {
       </div>
 
       <div className="dash-card">
-        <ConfusionMatrix grid={grid} title={`Confusion Matrix (${matrixFilter})`} />
+        <ConfusionMatrix grid={grid} title="Common note confusions" />
       </div>
+      </details>
     </div>
   );
 }

@@ -104,7 +104,7 @@ export function shrinkEstimate(success, total, pooled) {
 
 // Rebuild solely from observations; scheduler roles are deliberately absent here.
 export function estimate(trials, epoch, now = Date.now(), criteria = CRITERIA, recency = RECENCY) {
-  const valid = trials.filter(t => eligible(t) && t.schema_version === 2 && COMPATIBLE_LEARNER_MODEL_VERSIONS.includes(t.learner_model_version) && t.stimulus_generator_version === VERSIONS.stimulus_generator_version && CHROMAS.includes(t.target_pitch) && Array.isArray(t.explicit_response_set) && Number.isFinite(Date.parse(t.timestamp))).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const valid = trials.filter(t => eligible(t) && t.schema_version === 2 && COMPATIBLE_LEARNER_MODEL_VERSIONS.includes(t.learner_model_version) && t.stimulus_generator_version === VERSIONS.stimulus_generator_version && CHROMAS.includes(t.target_pitch) && Array.isArray(t.explicit_response_set) && Number.isFinite(Date.parse(t.timestamp))).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp) || String(a.id).localeCompare(String(b.id)));
   const pitches = Object.fromEntries(CHROMAS.map(p => {
     const exposures = valid.filter(t => t.target_pitch === p);
     const named = exposures.filter(t => t.explicit_response_set.includes(p));

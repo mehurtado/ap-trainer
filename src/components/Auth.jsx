@@ -1,33 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient.js';
 
-export default function Auth({ onAuthChange }) {
-  const [session, setSession] = useState(null);
+export default function Auth({ session = null }) {
   const [mode, setMode] = useState('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-
-  useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      onAuthChange?.(data.session);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      onAuthChange?.(newSession);
-    });
-
-    return () => listener.subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   if (!isSupabaseConfigured()) return null;
 
@@ -37,30 +17,35 @@ export default function Auth({ onAuthChange }) {
     setError('');
     setNotice('');
     const supabase = getSupabaseClient();
-    const { error: authError } = mode === 'sign-up'
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (authError) {
-      setError(authError.message);
-      return;
-    }
-    if (mode === 'sign-up') {
-      setNotice('Check your email to confirm your account.');
-    }
-    setPassword('');
+    try {
+      const { error: authError } = mode === 'sign-up'
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
+      setLoading(false);
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
+      if (mode === 'sign-up') {
+        setNotice('Check your email to confirm your account.');
+      }
+      setPassword('');
+    } catch (error) { setError(error.message); } finally { setLoading(false); }
   }
 
   async function handleSignOut() {
     setLoading(true);
     setError('');
-    await getSupabaseClient().auth.signOut();
-    setLoading(false);
+    try {
+      const { error: signOutError } = await getSupabaseClient().auth.signOut({ scope: 'local' });
+      if (signOutError) setError(signOutError.message);
+    } catch (error) { setError(error.message); } finally { setLoading(false); }
   }
 
   if (session) {
     return (
       <div className="auth-panel auth-signed-in">
+        {error && <p role="alert">{error}</p>}
         <span className="auth-status">Signed in as {session.user.email}</span>
         <button type="button" className="pill-btn" onClick={handleSignOut} disabled={loading}>
           Sign out
@@ -90,6 +75,7 @@ export default function Auth({ onAuthChange }) {
 
       <input
         type="email"
+        aria-label="Email"
         placeholder="Email"
         value={email}
         onChange={e => setEmail(e.target.value)}
@@ -98,6 +84,7 @@ export default function Auth({ onAuthChange }) {
       />
       <input
         type="password"
+        aria-label="Password"
         placeholder="Password"
         value={password}
         onChange={e => setPassword(e.target.value)}

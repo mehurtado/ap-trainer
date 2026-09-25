@@ -53,125 +53,8 @@ test('sanitizeForCSV does not modify non-string values', () => {
   assert.strictEqual(sanitizeForCSV(undefined), undefined);
 });
 
-// --- Mock IndexedDB for testing integration ---
-
-class MockIDBObjectStore {
-  constructor() {
-    this.data = [];
-    this.keys = [];
-  }
-  nextKey() { return this.keys.length ? Math.max(...this.keys) + 1 : 1; }
-  add(item) {
-    if (item.triggerError) {
-      this.tx.error = new Error('Mocked transaction error');
-    } else {
-      this.data.push(item);
-      this.keys.push(this.nextKey());
-    }
-  }
-  put(item, key) {
-    if (key !== undefined) {
-      const i = this.keys.indexOf(key);
-      if (i < 0) { this.data.push(item); this.keys.push(key); }
-      else this.data[i] = item;
-      return;
-    }
-    const k = item.id ?? item.key;
-    const i = this.data.findIndex(x => (x.id ?? x.key) === k);
-    if (i < 0) { this.data.push(item); this.keys.push(this.nextKey()); }
-    else this.data[i] = item;
-  }
-  get(key) {
-    return this.tx._trackRequest(() => this.data.find(x => (x.id ?? x.key) === key));
-  }
-  getAll() {
-    return this.tx._trackRequest(() => [...this.data]);
-  }
-  getAllKeys() {
-    return this.tx._trackRequest(() => [...this.keys]);
-  }
-  createIndex() {}
-}
-
-class MockIDBTransaction {
-  constructor(stores) {
-    this.stores = stores;
-    this.oncomplete = null;
-    this.onerror = null;
-    this.error = null;
-    this.pending = 0;
-    this.done = false;
-
-    for (const key in stores) {
-      stores[key].tx = this;
-    }
-
-    // Real requests (getAll/getAllKeys/get) can chain further requests from
-    // within their own onsuccess handler (e.g. the backfill's getAllKeys ->
-    // getAll -> put chain), so completion must wait for all outstanding
-    // requests to settle rather than firing on a fixed timer.
-    queueMicrotask(() => this._maybeComplete());
-  }
-  objectStore(name) {
-    return this.stores[name];
-  }
-  _trackRequest(getResult) {
-    const req = {};
-    this.pending++;
-    setTimeout(() => {
-      req.result = getResult();
-      this.pending--;
-      if (req.onsuccess) req.onsuccess();
-      this._maybeComplete();
-    }, 0);
-    return req;
-  }
-  _maybeComplete() {
-    if (this.done || this.pending > 0) return;
-    this.done = true;
-    if (this.error && this.onerror) this.onerror();
-    else if (!this.error && this.oncomplete) this.oncomplete();
-  }
-}
-
-class MockIDBDatabase {
-  constructor() {
-    this.objectStoreNames = {
-      contains: () => false
-    };
-    this.stores = {
-      trials: new MockIDBObjectStore(),
-      ambient: new MockIDBObjectStore(),
-      meta: new MockIDBObjectStore()
-    };
-  }
-  createObjectStore(name) {
-    return this.stores[name] ??= new MockIDBObjectStore();
-  }
-  transaction() {
-    return new MockIDBTransaction(this.stores);
-  }
-}
-
-let sharedMockDb = null;
-
-globalThis.indexedDB = {
-  open: () => {
-    const req = {};
-    setTimeout(() => {
-      const db = new MockIDBDatabase();
-      sharedMockDb = db;
-      if (req.onupgradeneeded) req.onupgradeneeded({ target: { result: db } });
-      if (req.onsuccess) {
-        req.result = db;
-        req.onsuccess();
-      }
-    }, 0);
-    return req;
-  }
-};
-
-const { saveTrial, getAllTrials, exportJSON, importJSON, saveAmbient, getAllAmbient, backfillMissingIds, backfillAllMissingIds } = await import('./db.js');
+import 'fake-indexeddb/auto';
+const { saveTrial, getAllTrials, exportJSON, importJSON, saveAmbient, getAllAmbient } = await import('./db.js');
 
 test('test saveTrial success', async () => {
   await saveTrial({ note: 'C' });
@@ -183,8 +66,8 @@ test('test saveTrial success', async () => {
 
 test('test saveTrial error', async () => {
   await assert.rejects(
-    () => saveTrial({ triggerError: true }),
-    { message: 'Mocked transaction error' }
+    () => saveTrial({ uncloneable: () => {} }),
+    { name: 'DataCloneError' }
   );
 });
 
@@ -231,47 +114,4 @@ test('saveAmbient preserves an explicitly provided id', async () => {
   assert.strictEqual(entry.id, 'preset-ambient-id');
 });
 
-test('backfillMissingIds assigns an id to a legacy record without one, leaving other fields and store size unchanged', async () => {
-  await getAllTrials(); // ensure the shared mock DB has been opened
-  const store = sharedMockDb.stores.trials;
-  const sizeBefore = store.data.length;
-  const legacyKey = store.nextKey();
-  store.data.push({ note: 'legacy-no-id-marker', timestamp: 'legacy-ts' });
-  store.keys.push(legacyKey);
-
-  await backfillMissingIds('trials');
-
-  assert.strictEqual(store.data.length, sizeBefore + 1, 'backfill must not add or remove records');
-  const keyIndex = store.keys.indexOf(legacyKey);
-  const updated = store.data[keyIndex];
-  assert.strictEqual(updated.note, 'legacy-no-id-marker');
-  assert.strictEqual(updated.timestamp, 'legacy-ts');
-  assert.ok(updated.id, 'legacy record should now have an id');
-});
-
-test('backfillMissingIds leaves a record that already has an id untouched', async () => {
-  await getAllTrials();
-  const store = sharedMockDb.stores.trials;
-  store.data.push({ id: 'already-has-id-marker', note: 'keep-me' });
-  store.keys.push(store.nextKey());
-
-  await backfillMissingIds('trials');
-
-  const record = store.data.find(t => t.note === 'keep-me');
-  assert.strictEqual(record.id, 'already-has-id-marker');
-});
-
-test('backfillAllMissingIds only assigns each id once, even if run again', async () => {
-  await getAllTrials();
-  const store = sharedMockDb.stores.trials;
-  store.data.push({ note: 'idempotency-marker', timestamp: 'x' });
-  store.keys.push(store.nextKey());
-
-  await backfillAllMissingIds();
-  const firstId = store.data.find(t => t.note === 'idempotency-marker').id;
-  assert.ok(firstId);
-
-  await backfillAllMissingIds();
-  const secondId = store.data.find(t => t.note === 'idempotency-marker').id;
-  assert.strictEqual(secondId, firstId, 'a second run must not reassign a new id');
-});
+// Real migration/backfill coverage lives in repository.test.js.

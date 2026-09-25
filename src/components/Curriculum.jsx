@@ -1,7 +1,9 @@
+import AppNav from './AppNav.jsx';
+import ProgressOverview from './ProgressOverview.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CHROMAS, INSTRUMENTS, nearestSample, chromaOctaveToHz } from '../audio/constants.js';
 import { audioEngine } from '../audio/AudioEngine.js';
-import { getAllTrials, getMeta, setMeta, getRecords, putRecord, saveTrial, exportJSON } from '../db/db.js';
+import { getAllTrials, getMeta, setMeta, getRecords, putRecord, saveTrial, exportJSON, subscribeData } from '../db/db.js';
 import { estimate, VERSIONS, contextKey, benchmarkEligible, isCanonical } from '../curriculum/model.js';
 import { schedule, generateSequence, CONFIG } from '../curriculum/scheduler.js';
 import { benchmark } from '../curriculum/benchmark.js';
@@ -21,10 +23,10 @@ const gateText = { qualification: 'more notes ready', evidence: 'enough evidence
 const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const id = () => crypto.randomUUID();
 export default function Curriculum({
-  onManual, onDashboard, theme, toggleTheme
+  onManual, onDashboard, theme, toggleTheme, initialView = 'home'
 }) {
   const [data, setData] = useState(null),
-    [view, setView] = useState('home'),
+    [view, setView] = useState(initialView),
     [error, setError] = useState('');
   const [experience, setExperience] = useState('new'),
     [sober, setSober] = useState(true),
@@ -64,13 +66,13 @@ export default function Curriculum({
           reason: 'adaptive curriculum introduction',
           ...VERSIONS
         });
-        await setMeta('curriculumEpoch', epoch);
+        await setMeta('curriculumEpoch', epoch, { initial: true });
       }
       if (live) { setCandidateOverride(override ?? { withdraw: false, excluded: [] }); setPerturbation(perturb ?? null); }
       if (live) setData({
         trials,
         epoch,
-        blocks: blocks.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+        blocks: blocks.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id))
       });
     }).catch(e => setError(e.message));
     return () => {
@@ -80,6 +82,19 @@ export default function Curriculum({
       audioEngine.stop();
     };
   }, []);
+  useEffect(() => {
+    if (!['home', 'summary', 'settings', 'map'].includes(view)) return;
+    let live = true;
+    const refresh = async () => {
+      const [trials, epoch, blocks, override] = await Promise.all([getAllTrials(), getMeta('curriculumEpoch'), getRecords('blocks'), getMeta('candidateOverride')]);
+      if (!live) return;
+      if (epoch) setData({ trials, epoch, blocks });
+      setCandidateOverride(override ?? { withdraw: false, excluded: [] });
+    };
+    refresh().catch(e => setError(e.message));
+    const unsubscribe = subscribeData(type => { if (type === 'pull') refresh().catch(e => setError(e.message)); });
+    return () => { live = false; unsubscribe(); };
+  }, [view]);
   const model = useMemo(() => data ? estimate(data.trials, data.epoch) : null, [data]);
   // Pre-decode every distinct sample a block will need so the first trial's
   // onset timing isn't skewed by a cache-miss fetch+decode.
@@ -392,14 +407,12 @@ export default function Curriculum({
   if (view === 'home') return <div className="screen home-screen">
     <header className="home-header"><div className="home-brand"><h1 className="app-title">AP Trainer</h1><span className="app-tagline">Absolute pitch training</span></div><button className="theme-btn" aria-label="Toggle theme" onClick={toggleTheme}>{theme === 'dark' ? '○' : '●'}</button></header>
     {error && <p role="alert">{error}</p>}
-    <div className="home-layout">
-      <aside className="home-side"><div className="stat-row"><div className="stat"><span className="stat-value">{data.trials.length}</span><span className="stat-label">notes played</span></div></div>
-        <nav className="curriculum-home-nav" aria-label="Practice tools"><button className="pill-btn" onClick={onManual}>More ways to play</button><button className="pill-btn" onClick={onDashboard}>Dashboard</button><button className="pill-btn" onClick={() => setView('settings')}>Settings</button><button className="pill-btn" onClick={() => setView('map')}>Progress</button></nav>
-      </aside>
-      <button className="session-btn primary" disabled={busy} onClick={() => start('adaptive')}><span className="btn-title">{busy ? 'Getting ready…' : 'Start training'}</span><span className="btn-sub">Listen. Pick a note. Find your rhythm.</span></button>
-    </div>
+    <AppNav current="training" onPractice={onManual} onDashboard={onDashboard} onSettings={() => setView('settings')} onDetails={() => setView('map')} />
+    <section className="training-hero"><div><h2>Your next round</h2><p>Adaptive practice chooses notes from your learning history. Listen, identify the pitch, and review your round.</p></div><button className="session-btn primary" disabled={busy} onClick={() => start('adaptive')}><span className="btn-title">{busy ? 'Getting ready…' : 'Start training'}</span><span className="btn-sub">Continue your adaptive practice</span></button></section>
+    <ProgressOverview trials={data.trials} blocks={data.blocks} epoch={data.epoch} compact onDashboard={onDashboard} />
   </div>;
   return <main className="curriculum"><header><h1>AP Trainer</h1><p>Absolute pitch training</p></header>{error && <p role="alert">{error}</p>}
+ {['settings', 'map'].includes(view) && <AppNav current={view} onTraining={() => setView('home')} onDashboard={onDashboard} onPractice={onManual} onSettings={() => setView('settings')} onDetails={() => setView('map')} />}
  {view === 'settings' && <><h2>Settings</h2>{(currentCandidate || candidateOverride.excluded.length > 0) && <section><h3>Notes on trial</h3>{currentCandidate && <><p>{currentCandidate.pitch} · {currentCandidate.blocks_held} blocks held · {holdText[currentCandidate.hold_reason] ?? 'Ready for regular practice'}</p><p>Recent trend: {model.pitches[currentCandidate.pitch].trend == null ? 'not enough data yet' : Math.round(model.pitches[currentCandidate.pitch].trend * 100) + ' percentage points'}. Review several blocks before deciding to pause.</p><label>Reason for pausing <input value={pauseReason} onChange={e => setPauseReason(e.target.value)} /></label><button disabled={candidateOverride.withdraw} onClick={pauseCandidate}>{candidateOverride.withdraw ? 'Pause queued for next block' : 'Pause this trial'}</button></>}{candidateOverride.excluded.map(p => <p key={p}>{p} · Set aside <button onClick={() => saveOverride({ ...candidateOverride, excluded: candidateOverride.excluded.filter(q => q !== p) }).catch(e => setError(e.message))}>Try this again: {p}</button></p>)}</section>}<details><summary>Expansion experiment</summary><p>For one new-note introduction, lower the overall readiness threshold by six points. Recognition and specificity requirements stay in place. This is an optional experiment, not a faster learning mode.</p><button onClick={togglePerturbation}>{perturbation ? 'Cancel expansion experiment' : 'Allow one threshold experiment'}</button></details><div className="curriculum-controls"><label>Experience <select value={experience} onChange={e => setExperience(e.target.value)}><option value="new">New / untrained</option><option value="returning">Returning / pretrained</option></select></label><label><input type="checkbox" checked={sober} onChange={e => setSober(e.target.checked)} /> Sober</label><label><input type="checkbox" checked={focused} onChange={e => setFocused(e.target.checked)} /> Focused, no concurrent task</label><label>Alertness <select value={alertness} onChange={e => setAlertness(e.target.value)}><option>ordinary</option><option>high</option><option>low</option></select></label><label>Audio <select value={output} onChange={e => setOutput(e.target.value)}><option>headphones</option><option>speakers</option><option>other</option></select></label><label>Context / notes <input value={notes} onChange={e => setNotes(e.target.value)} /></label></div><details><summary>Training tools</summary><div className="curriculum-actions"><button disabled={busy} onClick={() => start('mapping')}>Check starting ability</button><button disabled={busy} onClick={() => start('benchmark')}>Benchmark · 72 trials</button><button onClick={() => setView('map')}>Learner diagnostics</button><button onClick={backup}>Download full backup</button><button onClick={newEpoch}>Restart learning estimates</button></div><p>Restarting estimates preserves your history and gives earlier results less weight.</p></details><button onClick={() => setView('home')}>Back</button></>}
  {view === 'trial' && <><h2>Trial {index + 1} / {block.trials.length}</h2><p aria-live="polite">{ready ? 'Identify the pitch' : 'Listen…'}</p><PitchGrid selectable={block.explicit_response_set} handler={(p, input) => capture(p, index, input)} disabled={!ready} /></>}
  {view === 'confidence' && <div className="confidence-overlay"><p>How sure are you?</p>{[[.4, 'Low'], [.7, 'Medium'], [.95, 'High']].map(([value, label]) => <button className="conf-btn" key={value} disabled={busy} onClick={() => record(value)}>{label}</button>)}<details><summary>Second instinct</summary><label>Another guess <select value={second} onChange={e => {

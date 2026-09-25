@@ -209,8 +209,8 @@ export default function HomeScreen({
     <div className="screen home-screen">
       <header className="home-header">
         <div className="home-brand">
-          <h1 className="app-title">AP Trainer</h1>
-          <span className="app-tagline">Absolute pitch training</span>
+          <h1 className="app-title">Practice modes</h1>
+          <span className="app-tagline">Choose a focused exercise. Adaptive training is available in Training.</span>
         </div>
         <button className="theme-btn" aria-label="Toggle theme" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? '○' : '●'}
@@ -236,13 +236,13 @@ export default function HomeScreen({
 
           }
           <div className="mode-panel">
-            <h3 className="panel-label">Modes</h3>
+            <h3 className="panel-label">Practice options</h3>
             <div className="adaptive-row">
               <button
                 className={`adaptive-btn${adaptiveMode ? ' active' : ''}`}
                 onClick={onToggleAdaptive}
               >
-                {adaptiveMode ? '◉' : '○'} Manual stimulus weighting
+                {adaptiveMode ? '◉' : '○'} Focus on weaker notes
               </button>
               {adaptiveMode && <span className="adaptive-hint">worst notes first</span>}
             </div>
@@ -273,7 +273,7 @@ export default function HomeScreen({
         </aside>
 
         <section className="session-panel">
-          <h2 className="panel-title">Start a session</h2>
+          <h2 className="panel-title">Choose an exercise</h2>
           <div className="session-buttons">
             {!manualOnly && <><button className="session-btn primary" onClick={onStartColdStart}>
               Cold Start
